@@ -31,7 +31,7 @@
 }
 
 html {
-  font-size: 17px;
+  font-size: 21px;
 }
 
 html, body, [class*="css"], .stApp {
@@ -533,6 +533,20 @@ div[data-testid="stAlert"] {
 }
 .ci-unknown { color: var(--ci-text-secondary); font-weight: 700; }
 
+/* Digest news-date filter sits above KPIs */
+div[data-testid="stHorizontalBlock"]:has(.ci-digest-date-filter-marker),
+div[data-testid="stElementContainer"]:has(.ci-digest-date-filter-marker) {
+  margin-top: 0.35rem !important;
+  margin-bottom: 0.35rem !important;
+}
+.ci-digest-date-filter-marker {
+  display: none !important;
+  height: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+}
+
 /* Digest sort + pager: space below KPIs, one aligned row on desktop */
 div[data-testid="stHorizontalBlock"]:has(.ci-digest-controls-marker) {
   margin-top: 1.25rem !important;
@@ -798,7 +812,7 @@ div[data-testid="stHorizontalBlock"]:has(.ci-digest-controls-marker) {
 
 /* ---- Responsive breakpoints ---- */
 @media (max-width: 900px) {
-  html { font-size: 16.5px; }
+  html { font-size: 20.5px; }
 
   .ci-card {
     grid-template-columns: 1fr;
@@ -829,7 +843,7 @@ div[data-testid="stHorizontalBlock"]:has(.ci-digest-controls-marker) {
 }
 
 @media (max-width: 640px) {
-  html { font-size: 16px; }
+  html { font-size: 20px; }
 
   .stApp .main .block-container,
   section.main > div.block-container,

@@ -17,7 +17,7 @@ PARENT_STYLES = """
   min-width: min(92vw, 440px); background: #0A0F21; color: #fff;
   border: 1px solid rgba(64,190,70,.55); border-radius: 9999px;
   padding: .9rem 1.25rem; display: flex; align-items: center; gap: .75rem;
-  box-shadow: 0 8px 28px rgba(0,0,0,.5); font-size: 1.05rem; font-weight: 600;
+  box-shadow: 0 8px 28px rgba(0,0,0,.5); font-size: calc(1.05rem + 4px); font-weight: 600;
 }
 #ci-busy-bar .ci-spin {
   width: 1.2rem; height: 1.2rem; border-radius: 50%;
@@ -28,7 +28,7 @@ PARENT_STYLES = """
   bottom: 1.4rem; transform: translate(-50%, 14px);
   min-width: min(92vw, 440px); max-width: 92vw; background: #14243D; color: #fff;
   border-radius: 14px; padding: 1rem 1.25rem; border: 1px solid rgba(64,190,70,.5);
-  box-shadow: 0 10px 32px rgba(0,0,0,.55); font-size: 1.05rem; font-weight: 600;
+  box-shadow: 0 10px 32px rgba(0,0,0,.55); font-size: calc(1.05rem + 4px); font-weight: 600;
   opacity: 0; transition: opacity .2s ease, transform .2s ease; text-align: center;
 }
 #ci-toast.ci-show { opacity: 1; transform: translate(-50%, 0); }

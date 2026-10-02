@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from datetime import date, datetime, timezone
 from typing import Any, Literal
+from zoneinfo import ZoneInfo
 
 from src.config_loader import load_weights
 from src.db.models import DIMENSION_NAMES
@@ -10,6 +12,7 @@ from src.db.repository import Repository
 from src.process.scoring import recalculate_scores, weighted_score
 
 DigestSort = Literal["date", "relevance"]
+ISRAEL_TZ = ZoneInfo("Asia/Jerusalem")
 
 
 def _dimensions_from_row(row: dict[str, Any]) -> dict[str, int] | None:
@@ -22,6 +25,50 @@ def _dimensions_from_row(row: dict[str, Any]) -> dict[str, int] | None:
 def _item_created_at(row: dict[str, Any]) -> str:
     """Prefer ingest time (DB creation); fall back to source publish time."""
     return str(row.get("ingested_at") or row.get("published_at") or "")
+
+
+def israel_today() -> date:
+    """Calendar 'today' in Asia/Jerusalem (matches card timestamps)."""
+    return datetime.now(ISRAEL_TZ).date()
+
+
+def item_news_date(row: dict[str, Any]) -> date | None:
+    """Digest calendar day in Israel TZ: ingest time (when it entered our DB).
+
+    Falls back to published_at only if ingested_at is missing — matches the
+    Daily Digest "Creation date" sort, so "today" shows what was ingested today.
+    """
+    raw = row.get("ingested_at") or row.get("published_at")
+    if not raw:
+        return None
+    text = str(raw).strip()
+    if not text:
+        return None
+    try:
+        if text.endswith("Z"):
+            text = text[:-1] + "+00:00"
+        dt = datetime.fromisoformat(text)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(ISRAEL_TZ).date()
+    except ValueError:
+        if len(text) >= 10 and text[4] == "-" and text[7] == "-":
+            try:
+                return date.fromisoformat(text[:10])
+            except ValueError:
+                return None
+        return None
+
+
+def filter_digest_by_news_dates(
+    items: list[dict[str, Any]],
+    selected_dates: list[date] | set[date] | None,
+) -> list[dict[str, Any]]:
+    """Keep items whose news date is in ``selected_dates``. Empty selection → []."""
+    if not selected_dates:
+        return []
+    wanted = {d if isinstance(d, date) else date.fromisoformat(str(d)) for d in selected_dates}
+    return [item for item in items if item_news_date(item) in wanted]
 
 
 def list_digest(

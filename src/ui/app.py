@@ -7,6 +7,7 @@ Run from repo root:
 from __future__ import annotations
 
 import sys
+from datetime import date, timedelta
 from pathlib import Path
 
 import streamlit as st
@@ -19,7 +20,13 @@ from src.db.connection import is_connection_error, turso_configured
 from src.db.models import DIMENSION_NAMES
 from src.db.repository import Repository
 from src.services.comparison import get_comparison_matrix
-from src.services.digest import digest_kpis, list_digest
+from src.services.digest import (
+    digest_kpis,
+    filter_digest_by_news_dates,
+    israel_today,
+    item_news_date,
+    list_digest,
+)
 from src.services.feedback import get_latest_feedback
 from src.services.weights import get_effective_weights
 from src.ui.components import (
@@ -149,17 +156,18 @@ def _weight_editor_fragment(repo: Repository) -> None:
             unsafe_allow_html=True,
         )
 
-        if st.button(
-            "Save weights",
-            type="primary",
-            disabled=not can_save,
-            use_container_width=True,
-            key="save_weights_btn",
-        ):
-            queue_action(
-                "save_weights",
-                {"weights": {k: float(v) for k, v in raw_weights.items()}},
-            )
+        if dirty:
+            if st.button(
+                "Save weights",
+                type="primary",
+                disabled=not can_save,
+                use_container_width=True,
+                key="save_weights_btn",
+            ):
+                queue_action(
+                    "save_weights",
+                    {"weights": {k: float(v) for k, v in raw_weights.items()}},
+                )
 
 
 def _render_kpis(kpis: dict) -> None:
@@ -266,6 +274,11 @@ def _on_digest_sort_change() -> None:
     st.session_state.digest_page_select = 1
 
 
+def _on_digest_news_date_change() -> None:
+    st.session_state.digest_page = 1
+    st.session_state.digest_page_select = 1
+
+
 def _on_digest_page_jump() -> None:
     st.session_state.digest_page = int(st.session_state.digest_page_select)
 
@@ -273,6 +286,59 @@ def _on_digest_page_jump() -> None:
 def _digest_sort_key() -> str:
     label = st.session_state.get("digest_sort_label", "Creation date")
     return DIGEST_SORT_LABELS.get(label, "date")
+
+
+NEWS_DATE_LOOKBACK_DAYS = 90
+
+
+def _news_date_bounds(all_items: list) -> tuple[date, date]:
+    """Calendar range that always allows picking days other than today.
+
+    Streamlit locks ``date_input`` when min_value == max_value; keep a lookback
+    window even when every item was ingested on the same day.
+    """
+    today = israel_today()
+    days = [d for item in all_items if (d := item_news_date(item)) is not None]
+    earliest = min(days) if days else today
+    min_day = min(earliest, today - timedelta(days=NEWS_DATE_LOOKBACK_DAYS))
+    max_day = max(max(days) if days else today, today)
+    return min_day, max_day
+
+
+def _render_news_date_filter(all_items: list) -> list:
+    """Single-day calendar picker; defaults to Israel today."""
+    today = israel_today()
+    min_day, max_day = _news_date_bounds(all_items)
+    if "digest_news_date" not in st.session_state:
+        st.session_state.digest_news_date = today
+    else:
+        current = st.session_state.digest_news_date
+        if isinstance(current, date):
+            if current < min_day:
+                st.session_state.digest_news_date = min_day
+            elif current > max_day:
+                st.session_state.digest_news_date = max_day
+        else:
+            st.session_state.digest_news_date = today
+
+    st.markdown(
+        '<div class="ci-digest-date-filter-marker"></div>'
+        '<div class="ci-digest-field-label">News date</div>',
+        unsafe_allow_html=True,
+    )
+    selected = st.date_input(
+        "News date",
+        key="digest_news_date",
+        min_value=min_day,
+        max_value=max_day,
+        on_change=_on_digest_news_date_change,
+        help="Show items ingested on this calendar day (Israel timezone). Default: today.",
+        label_visibility="collapsed",
+        format="DD/MM/YYYY",
+    )
+    if not isinstance(selected, date):
+        selected = today
+    return filter_digest_by_news_dates(all_items, [selected])
 
 
 def _render_digest_controls(total: int) -> tuple[int, int]:
@@ -372,7 +438,7 @@ def _render_digest_tab(repo: Repository, db_path: Path | None) -> None:
 
     sort_by = _digest_sort_key()
     try:
-        items = list_digest(
+        all_items = list_digest(
             repo,
             weight_overrides=st.session_state.applied_weights,
             sort_by=sort_by,  # type: ignore[arg-type]
@@ -382,16 +448,24 @@ def _render_digest_tab(repo: Repository, db_path: Path | None) -> None:
             raise
         mark_db_dirty()
         repo, db_path = get_repository()
-        items = list_digest(
+        all_items = list_digest(
             repo,
             weight_overrides=st.session_state.applied_weights,
             sort_by=sort_by,  # type: ignore[arg-type]
         )
 
+    if not all_items:
+        st.info("No news items yet. Use **Run Now** to ingest.")
+        return
+
+    items = _render_news_date_filter(all_items)
     _render_kpis(digest_kpis(repo, items))
 
     if not items:
-        st.info("No news items yet. Use **Run Now** to ingest.")
+        st.info(
+            "No news for this **News date**. "
+            "Pick another day above, or run ingestion for today."
+        )
         return
 
     start, end = _render_digest_controls(len(items))
