@@ -167,6 +167,13 @@ A. Multi-dimension news scoring is analogous to Xray contextual analysis (severi
 mis-prioritizes). Dependency risk on the pipeline image → Xray/Curation. Future MCP
 tools → MCP Registry before enterprise use.
 
+**Q11. Why don’t you ingest financials, pricing pages, and job postings yet?**  
+A. Our v1 ingest is RSS/Atom on purpose. We verified and added security/release feeds.
+JFrog/GitLab IR “RSS” returned 403/HTML; pricing and jobs are HTML/API change-detection
+problems. In production we’d add dedicated adapters (EDGAR/IR API, pricing snapshot-diff,
+Greenhouse/Lever APIs) that still emit `NormalizedEntry` into the same classify → score
+path — not fake feed URLs. Full plan is in README “Why not every source type”.
+
 ---
 
 ## What I would improve with more time (3–4 honest points)
@@ -177,8 +184,9 @@ tools → MCP Registry before enterprise use.
    gate before prompt or model changes.
 3. **Read-only MCP server:** expose `search_news`, `get_comparison`, `get_digest` over the
    existing service layer for Cursor / Claude Desktop.
-4. **Richer ingestion:** enable secondary competitors when verified; optional changelog
-   HTML parsers with the same untrusted-content isolation; Slack digest of top-N scores.
+4. **Non-RSS ingest adapters (production):** IR/EDGAR for earnings, pricing URL
+   snapshot-diff, jobs board APIs — plus enable Cloudsmith/Harness when verified; Slack
+   digest of top-N scores. Same normalize → classify pipeline; different fetchers.
 
 ---
 

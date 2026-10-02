@@ -182,6 +182,39 @@ Today operators can nudge ranking with weight sliders and record 👍/👎 plus 
 | Secondary competitors (Cloudsmith, Harness) | Present in config, **`enabled: false`** |
 | The Register feed | Disabled (bot-challenge HTML to automated clients) |
 
+### Why not every source type from the brief — and how we'd ship them in production
+
+**Built now (v1):** verified **RSS/Atom only** — blogs, release notes, security research feeds,
+DevOps news, and light community signals. That matches the ingest we already have
+(`src/ingest/rss_fetcher.py` + `scripts/verify_feeds.py`). We do **not** invent mock URLs.
+
+| Brief source type | v1 status | Why |
+|-------------------|-----------|-----|
+| Official blogs / release notes | **In** | Stable public feeds for core competitors |
+| Security research | **In** | Verified feeds (e.g. GitLab security releases, GitHub security, Project Zero, Unit 42, Sonatype security tag) |
+| DevOps news / community | **In** (partial) | devops.com, HN, Reddit; The Register blocked by bot-challenge |
+| Quarterly financials (JFrog, GitLab) | **Not in** | Public IR “RSS” URLs returned **403 / HTML** to automated clients |
+| Pricing page change detection | **Not in** | Product pricing is HTML, not a feed — needs snapshot + diff |
+| Open job postings | **Not in** | Career boards (Greenhouse etc.) are HTML/APIs, not stable public RSS |
+
+**Production plan (next ingest adapters — same pipeline after normalize):**
+
+1. **Financial / IR adapter** — Prefer vendor IR APIs or SEC EDGAR filings for public cos.;
+   fall back to authenticated/browser-assisted fetch only if ToS allows; normalize into the
+   same `NormalizedEntry` shape (`category: earnings`). Alert on 10-Q/earnings keywords.
+2. **Pricing change detector** — Scheduled fetch of configured pricing URLs → store content
+   hash / structured fields → emit a synthetic “pricing_changed” item only on diff (low
+   volume, high signal). Treat HTML as untrusted; never paste full pages into prompts.
+3. **Jobs adapter** — Greenhouse/Lever/Ashby APIs (or approved scrapes) filtered by role
+   keywords (security, packaging, AI, sales eng) → strategic hiring signals, rate-limited.
+4. **Hardening for all adapters** — Per-source circuit breaker, robots/ToS checklist,
+   secrets in vault, eval set for classifier categories (`pricing`, `earnings`, `hiring`),
+   and Xray/Curation on the runner image. Comparison matrix stays curated YAML until an
+   analyst promotes a sourced claim — news never auto-rewrites product cells.
+
+Interview line: *“We covered every source type that fits RSS today; the rest are different
+adapters into the same normalize → classify → score path — not more fake feed URLs.”*
+
 ---
 
 ## UI note

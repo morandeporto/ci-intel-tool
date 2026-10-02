@@ -5,6 +5,37 @@ Maintained as decisions are made (see `.cursorrules`).
 
 ---
 
+## [2026-10-02] Expand RSS sources where verified; keep non-feed signals as Future Work
+
+**Selected Option:** Add verified security/release feeds (GitLab releases + security
+releases, GitHub security category, Sonatype security tag, Project Zero, Unit 42) to
+`config/sources.yaml`. Do **not** pretend IR pages, pricing HTML, or job boards are
+RSS rows — they failed verification (403/HTML) or need scrapers + change detection.
+Document a **production adapter roadmap** in README (IR/EDGAR, pricing diff, jobs APIs)
+that still lands on the same normalize → classify → score pipeline.
+
+**Alternatives Considered:**
+- Invent / hardcode fake IR & careers URLs (rejected: assignment forbids mock URLs)
+- Build pricing-diff + Greenhouse scrapers in the same day (rejected: scope / brittle)
+- Skip security research entirely (rejected: assignment lists it; feeds exist)
+- Force all brief source types into one RSS fetcher (rejected: wrong abstraction)
+
+**Rationale:** Simplicity + honesty — extend the working ingest path only for URLs
+`verify_feeds.py` accepts; ship different adapters later without rewriting scoring/UI.
+
+**How to Explain in an Interview (20–30 Seconds Verbal):**
+> "We didn't skip those source types on purpose — our pipeline is RSS/Atom. Security
+> and release feeds we verified and turned on. Earnings IR blocked us with 403, and
+> pricing/jobs are HTML change-detection problems — next we'd add dedicated adapters
+> into the same normalize step, not invent feed URLs."
+
+**JFrog Product Connection (If applicable):**
+Xray/Curation already care about security advisory provenance; extra security feeds
+feed the same "trusted upstream signal" mindset. Pricing/jobs adapters would be treated
+like untrusted package metadata — isolate, validate, then promote.
+
+---
+
 ## [2026-10-02] Ask Digest: comparison matrix grounding + capped session follow-ups
 
 **Selected Option:** Inject the full curated `comparison.yaml` matrix into every Ask

@@ -53,6 +53,50 @@ sources:
     enabled: true
     category: blog
 
+  # Release notes / security-focused feeds (verified 2026-10-02).
+  - id: gitlab_releases
+    competitor: gitlab
+    type: atom
+    url: https://about.gitlab.com/releases.xml
+    enabled: true
+    category: release_notes
+
+  - id: gitlab_security_releases
+    competitor: gitlab
+    type: atom
+    url: https://about.gitlab.com/security-releases.xml
+    enabled: true
+    category: security_research
+
+  - id: github_security
+    competitor: github
+    type: rss
+    url: https://github.blog/category/security/feed/
+    enabled: true
+    category: security_research
+
+  - id: sonatype_security
+    competitor: sonatype
+    type: rss
+    url: https://blog.sonatype.com/tag/security/rss.xml
+    enabled: true
+    category: security_research
+
+  # Industry security research (not a tracked competitor — competitor: industry).
+  - id: project_zero
+    competitor: industry
+    type: atom
+    url: https://googleprojectzero.blogspot.com/feeds/posts/default
+    enabled: true
+    category: security_research
+
+  - id: unit42
+    competitor: industry
+    type: rss
+    url: https://unit42.paloaltonetworks.com/feed/
+    enabled: true
+    category: security_research
+
   - id: devops_com
     competitor: industry
     type: rss
@@ -90,3 +134,11 @@ sources:
     url: https://hnrss.org/newest?q=Snyk
     enabled: true
     category: community
+
+  # -------------------------------------------------------------------------
+  # Not RSS — cannot be "just another sources.yaml row" with current ingest:
+  # - Investor/earnings IR pages (JFrog/GitLab): tried public RSS; returned 403/HTML.
+  # - Pricing pages: HTML product pages; need scheduled snapshot/diff, not feedparser.
+  # - Job boards (Greenhouse/Lever/etc.): HTML APIs, not stable public RSS for CI.
+  # Track those as Future Work (dedicated scrapers + change detection).
+  # -------------------------------------------------------------------------
