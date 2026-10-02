@@ -5,6 +5,29 @@ Maintained as decisions are made (see `.cursorrules`).
 
 ---
 
+## [Setup] LLM provider: Google Gemini (free tier)
+
+**Chosen:** Google Gemini via `GEMINI_API_KEY` in `.env`. Prefer a free Flash / Flash-Lite model
+(e.g. `gemini-3.8-flash` or `gemini-3.5-flash-lite` for new projects); keep the model ID in config so
+it can be swapped in one line.
+
+**Alternatives considered:** OpenAI (paid after a small credit / no durable free API quota for this
+workload); Anthropic Claude (similar paid-first API posture).
+
+**Why:** Gemini still offers a usable free Developer API tier (no billing required for eligible Flash
+models), which fits a ~2-day take-home with many classification/summarization calls. Rate limits are
+per project (RPM / TPM / RPD) and should be read live in Google AI Studio; Pro models generally need
+billing.
+
+**Talking points (spoken, ~30 seconds):**
+> "I picked Gemini for the free tier headroom so I can iterate on prompts without burning budget.
+> The model name lives in config, so swapping providers later is a one-line change plus a different
+> API key in `.env`."
+
+**Possible JFrog product connection:** Not applicable here.
+
+---
+
 ## [Planning] Weighted relevance scoring and a future feedback loop
 
 **Chosen:** The LLM rates each item on several dimensions (1-5). The weighted score is computed in
