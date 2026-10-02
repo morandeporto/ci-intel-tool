@@ -10,7 +10,7 @@ import streamlit as st
 
 from src.db.repository import Repository
 from src.process.llm_classify import ClassifyError
-from src.services.ask_digest import ask_digest
+from src.services.ask_digest import ChatTurn, ask_digest
 from src.services.feedback import record_feedback
 from src.services.weights import save_weights
 from src.ui.db_session import mark_db_dirty, invalidate_db_cache
@@ -85,14 +85,31 @@ def _execute(
     if name == "run_now":
         return run_pipeline(db_path)
     if name == "ask":
-        result = ask_digest(repo, str(payload["question"]))
+        history_raw = payload.get("history") or []
+        history = [
+            ChatTurn(role=str(t["role"]), content=str(t["content"]))
+            for t in history_raw
+            if isinstance(t, dict) and t.get("role") and t.get("content")
+        ]
+        question = str(payload["question"])
+        result = ask_digest(repo, question, history=history)
+        prior = list(st.session_state.get("_ci_ask_thread") or [])
+        thread = prior + [
+            {"role": "user", "content": question},
+            {"role": "assistant", "content": result.answer},
+        ]
+        st.session_state["_ci_ask_thread"] = thread
         st.session_state["_ci_ask_result"] = {
             "answer": result.answer,
             "citations": [
                 {"title": c.title, "url": c.url, "competitor": c.competitor}
                 for c in (result.citations or [])
             ],
+            "used_comparison": bool(result.used_comparison),
+            "model_id": result.model_id,
         }
+        # Clear the input for the next follow-up.
+        st.session_state["ask_question_input"] = ""
         return True, "Answer ready"
     return False, f"Unknown action: {name}"
 

@@ -5,6 +5,35 @@ Maintained as decisions are made (see `.cursorrules`).
 
 ---
 
+## [2026-10-02] Ask Digest: comparison matrix grounding + capped session follow-ups
+
+**Selected Option:** Inject the full curated `comparison.yaml` matrix into every Ask
+prompt alongside top-k retrieved news. Keep short **browser-session** chat history with
+a hard cap of **2 follow-ups** (3 user turns total) per thread; "New chat" resets.
+
+**Alternatives Considered:**
+- Pass comparison into news *classification* scoring (rejected: biases daily scores;
+  matrix is for product posture Q&A, not every RSS item)
+- Unlimited chat / Gemini ChatSession memory (rejected: unbounded token cost)
+- Persistent conversation table in SQLite (rejected: overkill for take-home demo)
+- Matrix-only when keywords match capabilities (deferred: matrix is small enough to
+  always include; simpler prompt contract)
+
+**Rationale:** Cost/Latency + Security — grounded product answers without inventing
+cells; follow-up continuity for demos without runaway spend. Not true model "memory":
+we resend prior turns in the prompt each call.
+
+**How to Explain in an Interview (20–30 Seconds Verbal):**
+> "Ask is light RAG: keyword-retrieve news, always attach our sourced comparison
+> matrix, then one Gemini call. You can follow up twice in the same Streamlit session —
+> we resend that short transcript — then we force a new chat so tokens stay bounded."
+
+**JFrog Product Connection (If applicable):**
+A production CI assistant would treat comparison claims like curated catalog metadata
+(AppTrust / trusted content) and gate tools via an MCP Registry before agents can call them.
+
+---
+
 ## [2026-10-02] Database: Turso for shared demo; Postgres for real production
 
 **Selected Option (this take-home):** Turso (hosted libSQL / SQLite-compatible) when

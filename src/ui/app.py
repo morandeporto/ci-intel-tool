@@ -400,31 +400,91 @@ def _render_digest_tab(repo: Repository, db_path: Path | None) -> None:
         _render_feedback_row(repo, item)
 
 
-def _render_ask_tab(repo: Repository) -> None:
-    st.markdown('<div class="ci-section-title">Ask the digest</div>', unsafe_allow_html=True)
-    st.caption("Each Ask uses one Gemini call with citations from retrieved news.")
-    question = st.text_input(
-        "Question",
-        placeholder="e.g. What did Snyk announce that matters to JFrog?",
-    )
-    ask_clicked = st.button("Ask", type="primary", use_container_width=True)
-    st.markdown('<div class="ci-bottom-spacer"></div>', unsafe_allow_html=True)
-    if ask_clicked and question.strip():
-        queue_action("ask", {"question": question.strip()})
-    elif ask_clicked:
-        flash("Enter a question first", ok=False)
-        st.rerun()
+def _ask_user_turn_count(thread: list[dict]) -> int:
+    return sum(1 for t in thread if t.get("role") == "user")
 
-    result = st.session_state.get("_ci_ask_result")
-    if result:
-        st.markdown(result.get("answer") or "")
+
+def _render_ask_tab(repo: Repository) -> None:
+    from src.services.ask_digest import MAX_FOLLOW_UPS, MAX_USER_TURNS
+
+    st.markdown('<div class="ci-section-title">Ask the digest</div>', unsafe_allow_html=True)
+    st.caption(
+        "Light RAG over retrieved news **plus** the curated comparison matrix. "
+        f"Short chat memory in this browser session only — up to **{MAX_FOLLOW_UPS}** "
+        "follow-ups per thread (token guardrail). Not a persistent model memory."
+    )
+
+    thread: list[dict] = list(st.session_state.get("_ci_ask_thread") or [])
+    user_turns = _ask_user_turn_count(thread)
+    follow_ups_used = max(0, user_turns - 1) if user_turns else 0
+    can_follow_up = user_turns > 0 and user_turns < MAX_USER_TURNS
+
+    if thread:
+        st.markdown("**Conversation**")
+        for turn in thread:
+            role = "You" if turn.get("role") == "user" else "Assistant"
+            st.markdown(f"**{role}:** {turn.get('content') or ''}")
+        result = st.session_state.get("_ci_ask_result") or {}
         citations = result.get("citations") or []
         if citations:
-            st.markdown("**Sources**")
+            st.markdown("**News sources (latest turn)**")
             for i, c in enumerate(citations, start=1):
                 st.markdown(
                     f"[{i}] [{c.get('title')}]({c.get('url')}) — {c.get('competitor')}"
                 )
+        if result.get("used_comparison"):
+            st.caption("Also used curated Comparison matrix claims (see Comparison tab).")
+        st.caption(
+            f"Follow-ups used: {follow_ups_used}/{MAX_FOLLOW_UPS}. "
+            "Start a new chat to reset."
+        )
+
+    if user_turns >= MAX_USER_TURNS:
+        st.info(
+            f"This thread hit the {MAX_FOLLOW_UPS}-follow-up limit. "
+            "Click **New chat** to continue with a fresh context."
+        )
+        if st.button("New chat", key="ask_new_chat_limit", use_container_width=True):
+            st.session_state.pop("_ci_ask_thread", None)
+            st.session_state.pop("_ci_ask_result", None)
+            st.rerun()
+        return
+
+    placeholder = (
+        "Follow-up, e.g. How does that compare to JFrog Artifactory?"
+        if can_follow_up
+        else "e.g. What did Snyk announce that matters to JFrog?"
+    )
+    question = st.text_input(
+        "Follow-up" if can_follow_up else "Question",
+        placeholder=placeholder,
+        key="ask_question_input",
+    )
+    c1, c2 = st.columns([3, 1])
+    with c1:
+        ask_label = "Ask follow-up" if can_follow_up else "Ask"
+        ask_clicked = st.button(ask_label, type="primary", use_container_width=True)
+    with c2:
+        if thread and st.button("New chat", key="ask_new_chat", use_container_width=True):
+            st.session_state.pop("_ci_ask_thread", None)
+            st.session_state.pop("_ci_ask_result", None)
+            st.rerun()
+
+    st.markdown('<div class="ci-bottom-spacer"></div>', unsafe_allow_html=True)
+
+    if ask_clicked and question.strip():
+        queue_action(
+            "ask",
+            {
+                "question": question.strip(),
+                "history": [
+                    {"role": t["role"], "content": t["content"]} for t in thread
+                ],
+            },
+        )
+    elif ask_clicked:
+        flash("Enter a question first", ok=False)
+        st.rerun()
 
 
 def _render_comparison_tab() -> None:

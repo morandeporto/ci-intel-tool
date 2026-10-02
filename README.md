@@ -44,7 +44,7 @@ streamlit run src/ui/app.py
 | Tab | What you get |
 |-----|----------------|
 | **Daily Digest** | Items sorted by relevance; weight sliders + **Save weights**; 👍/👎 + rationale; **Run Now**; pipeline run history |
-| **Ask the Digest** | Light RAG: retrieve news from DB → Gemini answers with citations only from those rows |
+| **Ask the Digest** | Light RAG: top-k news from DB + curated comparison matrix → Gemini with citations; up to 2 session follow-ups |
 | **Comparison** | Curated capability matrix (`last_reviewed` shown) — every claim has a source link + quote, or **Unknown** |
 
 ### Optional shared database (Turso)
@@ -145,7 +145,7 @@ config/*.yaml          competitors, sources, weights, model, comparison
 | **Gemini** (`gemini-3.8-flash` in `config/model.yaml`) | Free-tier friendly for a ~2-day take-home; model id lives only in config for one-line swaps |
 | **Weights in code, not in the LLM** | Dimension scores (1–5) are stored; retuning weights needs no re-query; **Save weights** persists to DB |
 | **Turso for shared demo; Postgres for production** | Shared reviewers now; managed Postgres if this were a real product |
-| **Light RAG Ask tab** | Retrieve-from-SQLite then generate with citations; embeddings later at scale |
+| **Light RAG Ask tab** | Retrieve-from-SQLite + curated comparison matrix → Gemini; max 2 follow-ups per session thread |
 | **Curated `comparison.yaml`** | Claims must be source-linked; never generated from model memory; not auto-updated by news |
 | **JFrog Medium RSS** | Official `jfrog.com/blog/feed/` returned empty (HTTP 202); Medium `@JFrog.com` feed verified working |
 | **Community feeds (Reddit/HN)** | Market perception alongside official vendor blogs |
