@@ -25,6 +25,8 @@ load_dotenv(PROJECT_ROOT / ".env")
 
 DIM_MIN = 1
 DIM_MAX = 5
+# Midpoint of the 1–5 scale — used when Gemini is unavailable so ingestion still completes.
+FALLBACK_DIMENSION_SCORE = 3
 
 ALLOWED_CATEGORIES = (
     "product_release",
@@ -80,6 +82,29 @@ class ClassificationResult(BaseModel):
 
     def dimension_dict(self) -> dict[str, int]:
         return {name: getattr(self, name) for name in DIMENSION_NAMES}
+
+
+def fallback_classification(entry: NormalizedEntry) -> ClassificationResult:
+    """Generic mid-score result when the LLM call fails.
+
+    Keeps the daily pipeline moving: item is still stored with average dimension
+    scores (3/5) and a placeholder summary derived from the title only.
+    """
+    title = (entry.title or "Untitled item").strip() or "Untitled item"
+    summary = (
+        "Automatic placeholder summary — Gemini classification was unavailable. "
+        f"Headline: {title[:240]}"
+    )
+    mid = FALLBACK_DIMENSION_SCORE
+    return ClassificationResult(
+        summary=summary,
+        category="other",
+        jfrog_relevance=mid,
+        competitor_signal=mid,
+        strategic_impact=mid,
+        freshness=mid,
+        market_visibility=mid,
+    )
 
 
 def build_classification_prompt(
@@ -236,3 +261,22 @@ def classify_entry_or_none(
         return classify_entry(entry, model_config=model_config, api_key=api_key)
     except ClassifyError:
         return None
+
+
+def classify_entry_with_fallback(
+    entry: NormalizedEntry,
+    *,
+    model_config: dict[str, Any] | None = None,
+    api_key: str | None = None,
+) -> tuple[ClassificationResult, bool, str | None]:
+    """Classify via Gemini; on any ClassifyError return mid-score fallback.
+
+    Returns:
+        (result, used_fallback, error_message_or_None)
+    """
+    try:
+        return classify_entry(entry, model_config=model_config, api_key=api_key), False, None
+    except ClassifyError as exc:
+        return fallback_classification(entry), True, str(exc)
+    except Exception as exc:  # noqa: BLE001 — provider/network errors → fallback
+        return fallback_classification(entry), True, str(exc)

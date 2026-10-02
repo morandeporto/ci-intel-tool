@@ -19,8 +19,8 @@ def record_feedback(
 ) -> int:
     """Persist a 👍/👎 vote and optional rationale. Returns feedback row id.
 
-    The automated weight-adjustment engine is Future Work; this only stores
-    the signal so a learning loop can consume it later (lead-scoring style).
+    One shared feedback row per news item (upsert) so all reviewers see the
+    same saved signal. The automated weight-adjustment engine is Future Work.
     """
     if vote not in ("up", "down"):
         raise ValueError("vote must be 'up' or 'down'")
@@ -32,13 +32,21 @@ def record_feedback(
     # Soft length guard — avoid storing large paste dumps as "PII-adjacent" noise.
     if clean_rationale and len(clean_rationale) > 2000:
         clean_rationale = clean_rationale[:2000]
+    # Thumbs-up never needs a rationale.
+    if vote == "up":
+        clean_rationale = None
 
-    return repo.add_feedback(
+    return repo.upsert_feedback(
         news_item_id=news_item_id,
         original_score=float(original_score),
         vote=vote,
         rationale=clean_rationale,
     )
+
+
+def get_latest_feedback(repo: Repository, news_item_id: str) -> dict | None:
+    """Return the current shared feedback for a news item, if any."""
+    return repo.get_latest_feedback(news_item_id)
 
 
 def list_item_feedback(repo: Repository, news_item_id: str) -> list[dict]:

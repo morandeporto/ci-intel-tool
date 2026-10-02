@@ -23,7 +23,10 @@ from src.db.repository import Repository
 from src.ingest.normalize import NormalizedEntry
 from src.ingest.rss_fetcher import fetch_and_normalize
 from src.process.dedupe import is_duplicate
-from src.process.llm_classify import ClassifyError, ClassificationResult, classify_entry
+from src.process.llm_classify import (
+    ClassificationResult,
+    classify_entry_with_fallback,
+)
 from src.process.scoring import weighted_score
 
 RunTrigger = Literal["manual", "cron"]
@@ -50,12 +53,35 @@ class PipelineResult:
     new_entries: list[NormalizedEntry] = field(default_factory=list)
 
 
-def _filter_new_entries(
+def _filter_entries_to_process(
+    repo: Repository,
+    entries: list[NormalizedEntry],
+) -> list[NormalizedEntry]:
+    """New items plus any feed row that matches a URL missing scores (retry)."""
+    existing_urls = repo.existing_urls()
+    existing_hashes = repo.existing_content_hashes()
+    retry_urls = repo.urls_missing_dimension_scores()
+    to_process: list[NormalizedEntry] = []
+    urls = set(existing_urls)
+    hashes = set(existing_hashes)
+    for entry in entries:
+        if entry.url in retry_urls:
+            to_process.append(entry)
+            continue
+        if is_duplicate(entry.url, entry.content_hash, urls, hashes):
+            continue
+        to_process.append(entry)
+        urls.add(entry.url)
+        hashes.add(entry.content_hash)
+    return to_process
+
+
+def _filter_new_entries_simple(
     entries: list[NormalizedEntry],
     existing_urls: set[str],
     existing_hashes: set[str],
 ) -> list[NormalizedEntry]:
-    """Drop items already seen by URL or content hash; track seen within-batch too."""
+    """Dedupe only (dry-run when DB is unavailable)."""
     new_items: list[NormalizedEntry] = []
     urls = set(existing_urls)
     hashes = set(existing_hashes)
@@ -104,7 +130,7 @@ def _persist_classified(
         model_id=model_id,
         scored_at=now,
     )
-    repo.upsert_news_item(item)
+    news_id = repo.upsert_news_item(item)
     repo.save_dimension_scores(news_id, dims)
 
 
@@ -136,13 +162,14 @@ def run_daily(
         # but never writes and never calls the LLM.
         existing_urls: set[str] = set()
         existing_hashes: set[str] = set()
+        dry_repo: Repository | None = None
         try:
             if use_turso:
                 conn = get_connection()
                 try:
-                    repo = Repository(conn)
-                    existing_urls = repo.existing_urls()
-                    existing_hashes = repo.existing_content_hashes()
+                    dry_repo = Repository(conn)
+                    existing_urls = dry_repo.existing_urls()
+                    existing_hashes = dry_repo.existing_content_hashes()
                 finally:
                     try:
                         conn.close()
@@ -150,15 +177,18 @@ def run_daily(
                         pass
             elif path is not None and path.exists():
                 with get_connection(path) as conn:
-                    repo = Repository(conn)
-                    existing_urls = repo.existing_urls()
-                    existing_hashes = repo.existing_content_hashes()
+                    dry_repo = Repository(conn)
+                    existing_urls = dry_repo.existing_urls()
+                    existing_hashes = dry_repo.existing_content_hashes()
         except Exception:
             pass
 
-        new_entries = _filter_new_entries(
-            fetch_result.entries, existing_urls, existing_hashes
-        )
+        if dry_repo is not None:
+            new_entries = _filter_entries_to_process(dry_repo, fetch_result.entries)
+        else:
+            new_entries = _filter_new_entries_simple(
+                fetch_result.entries, existing_urls, existing_hashes
+            )
         to_process = new_entries[:effective_limit]
         print(
             f"[dry-run] fetched={items_fetched} new={len(new_entries)} "
@@ -201,6 +231,7 @@ def run_daily(
     run_id: str | None = None
     items_scored = 0
     items_failed = 0
+    items_fallback = 0
     classify_errors: list[str] = []
 
     def _connect():
@@ -212,29 +243,33 @@ def run_daily(
             repo = Repository(conn)
             run_id = repo.start_run(trigger)
 
-            new_entries = _filter_new_entries(
-                fetch_result.entries,
-                repo.existing_urls(),
-                repo.existing_content_hashes(),
-            )
+            new_entries = _filter_entries_to_process(repo, fetch_result.entries)
             to_process = new_entries[:effective_limit]
 
             for entry in to_process:
+                result, used_fallback, err = classify_entry_with_fallback(
+                    entry, model_config=model_cfg
+                )
+                persist_model_id = (
+                    f"{model_id}:fallback" if used_fallback else model_id
+                )
                 try:
-                    result = classify_entry(entry, model_config=model_cfg)
                     _persist_classified(
                         repo,
                         entry,
                         result,
                         weights=weights,
-                        model_id=model_id,
+                        model_id=persist_model_id,
                         run_id=run_id,
                     )
                     items_scored += 1
-                except ClassifyError as exc:
-                    # Per-item failure must not abort the whole run.
+                    if used_fallback:
+                        items_fallback += 1
+                        if err:
+                            classify_errors.append(f"{entry.url}: {err}")
+                except Exception as exc:  # noqa: BLE001 — persist must not kill the run
                     items_failed += 1
-                    classify_errors.append(f"{entry.url}: {exc}")
+                    classify_errors.append(f"{entry.url}: persist failed: {exc}")
                     continue
 
             status = _resolve_status(
@@ -242,15 +277,29 @@ def run_daily(
                 items_new=len(new_entries),
                 items_scored=items_scored,
                 items_failed=items_failed,
+                items_fallback=items_fallback,
                 source_errors=source_errors,
                 attempted=len(to_process),
             )
             error_message = None
-            if classify_errors:
-                # Keep message short and non-sensitive for the runs table.
+            if items_failed and classify_errors:
                 error_message = (
-                    f"{items_failed} item(s) failed classification "
+                    f"{items_failed} item(s) failed to persist "
                     f"(first: {classify_errors[0][:200]})"
+                )
+            elif items_fallback and items_scored > 0:
+                error_message = (
+                    f"{items_fallback} item(s) saved with average fallback scores "
+                    f"(Gemini unavailable)"
+                    + (
+                        f"; first: {classify_errors[0][:120]}"
+                        if classify_errors
+                        else ""
+                    )
+                )
+            elif items_new == 0 and items_scored == 0 and attempted == 0:
+                error_message = (
+                    "No new articles to ingest — everything in the feed is already in the digest."
                 )
             elif source_errors and status != "success":
                 error_message = f"{source_errors} source fetch error(s)"
@@ -319,11 +368,11 @@ def _resolve_status(
     items_new: int,
     items_scored: int,
     items_failed: int,
+    items_fallback: int = 0,
     source_errors: int,
     attempted: int,
 ) -> RunStatus:
     if attempted == 0:
-        # Nothing to classify — success unless every source failed with zero entries.
         if items_fetched == 0 and source_errors > 0:
             return "failed"
         if source_errors > 0:
@@ -331,6 +380,9 @@ def _resolve_status(
         return "success"
     if items_scored == 0 and items_failed > 0:
         return "failed"
+    # Fallback-only scoring is still a successful ingest for demo purposes.
+    if items_scored > 0 and items_failed == 0 and items_fallback > 0:
+        return "success"
     if items_failed > 0 or source_errors > 0:
         return "partial"
     return "success"

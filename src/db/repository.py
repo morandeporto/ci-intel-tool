@@ -151,38 +151,75 @@ class Repository:
         rows = _rows_as_dicts(cur)
         return {str(r["content_hash"]) for r in rows}
 
-    def upsert_news_item(self, item: NewsItem) -> None:
-        self.conn.execute(
+    def urls_missing_dimension_scores(self) -> set[str]:
+        """URLs stored without dimension_scores (failed or partial ingest)."""
+        cur = self.conn.execute(
             """
-            INSERT INTO news_items (
-                id, title, url, source_id, competitor, published_at, ingested_at,
-                summary, category, raw_excerpt, content_hash, relevance_score, run_id
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(url) DO UPDATE SET
-                title = excluded.title,
-                summary = excluded.summary,
-                category = excluded.category,
-                raw_excerpt = excluded.raw_excerpt,
-                relevance_score = excluded.relevance_score,
-                run_id = excluded.run_id
-            """,
-            (
-                item.id,
-                item.title,
-                item.url,
-                item.source_id,
-                item.competitor,
-                item.published_at,
-                item.ingested_at,
-                item.summary,
-                item.category,
-                item.raw_excerpt,
-                item.content_hash,
-                item.relevance_score,
-                item.run_id,
-            ),
+            SELECT n.url FROM news_items n
+            LEFT JOIN dimension_scores d ON d.news_item_id = n.id
+            WHERE d.news_item_id IS NULL
+            """
         )
+        return {str(r["url"]) for r in _rows_as_dicts(cur)}
+
+    def upsert_news_item(self, item: NewsItem) -> str:
+        """Insert or update by URL. Returns the stable news_items.id (needed for scores)."""
+        row = self.conn.execute(
+            "SELECT id FROM news_items WHERE url = ?",
+            (item.url,),
+        ).fetchone()
+        if row is not None:
+            news_id = str(_scalar(row, "id", 0))
+            self.conn.execute(
+                """
+                UPDATE news_items SET
+                    title = ?, source_id = ?, competitor = ?, published_at = ?,
+                    ingested_at = ?, summary = ?, category = ?, raw_excerpt = ?,
+                    content_hash = ?, relevance_score = ?, run_id = ?
+                WHERE url = ?
+                """,
+                (
+                    item.title,
+                    item.source_id,
+                    item.competitor,
+                    item.published_at,
+                    item.ingested_at,
+                    item.summary,
+                    item.category,
+                    item.raw_excerpt,
+                    item.content_hash,
+                    item.relevance_score,
+                    item.run_id,
+                    item.url,
+                ),
+            )
+        else:
+            news_id = item.id
+            self.conn.execute(
+                """
+                INSERT INTO news_items (
+                    id, title, url, source_id, competitor, published_at, ingested_at,
+                    summary, category, raw_excerpt, content_hash, relevance_score, run_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    item.id,
+                    item.title,
+                    item.url,
+                    item.source_id,
+                    item.competitor,
+                    item.published_at,
+                    item.ingested_at,
+                    item.summary,
+                    item.category,
+                    item.raw_excerpt,
+                    item.content_hash,
+                    item.relevance_score,
+                    item.run_id,
+                ),
+            )
         self.conn.commit()
+        return news_id
 
     def save_dimension_scores(self, news_item_id: str, scores: DimensionScores) -> None:
         self.conn.execute(
@@ -275,6 +312,34 @@ class Repository:
         self.conn.commit()
         last_id = getattr(cur, "lastrowid", None)
         return int(last_id) if last_id is not None else 0
+
+    def upsert_feedback(
+        self,
+        news_item_id: str,
+        original_score: float,
+        vote: str,
+        rationale: str | None = None,
+    ) -> int:
+        """Replace the shared feedback for a news item (exactly one row)."""
+        if vote not in ("up", "down"):
+            raise ValueError("vote must be 'up' or 'down'")
+        item_id = str(news_item_id)
+        # Drop every prior vote for this item so 👍 after 👎 updates, never duplicates.
+        self.conn.execute("DELETE FROM feedback WHERE news_item_id = ?", (item_id,))
+        cur = self.conn.execute(
+            """
+            INSERT INTO feedback (news_item_id, original_score, vote, rationale, created_at)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (item_id, original_score, vote, rationale, _utc_now()),
+        )
+        self.conn.commit()
+        last_id = getattr(cur, "lastrowid", None)
+        return int(last_id) if last_id is not None else 0
+
+    def get_latest_feedback(self, news_item_id: str) -> dict[str, Any] | None:
+        rows = self.list_feedback(news_item_id)
+        return rows[0] if rows else None
 
     def list_feedback(self, news_item_id: str | None = None) -> list[dict[str, Any]]:
         if news_item_id:

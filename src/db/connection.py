@@ -33,6 +33,29 @@ def turso_configured() -> bool:
     return True
 
 
+def is_connection_error(exc: BaseException) -> bool:
+    """True for dropped Turso/Hrana/socket errors that warrant a reconnect."""
+    msg = str(exc).lower()
+    needles = (
+        "hrana",
+        "connection closed",
+        "connection reset",
+        "broken pipe",
+        "websocket",
+        "timed out",
+        "timeout",
+        "server closed",
+        "remote protocol",
+        "connect error",
+    )
+    return any(n in msg for n in needles)
+
+
+def ping_connection(conn: Any) -> None:
+    """Cheap liveness check — raises if the socket/remote is dead."""
+    conn.execute("SELECT 1")
+
+
 def db_label(db_path: Path | str | None = None) -> str:
     """Human-readable DB description for the UI."""
     if turso_configured():

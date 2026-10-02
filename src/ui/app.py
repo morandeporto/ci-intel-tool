@@ -2,8 +2,6 @@
 
 Run from repo root:
   .venv/bin/streamlit run src/ui/app.py
-
-Design tokens emulate a JFrog-like dark aesthetic; no official logos are used.
 """
 
 from __future__ import annotations
@@ -13,33 +11,33 @@ from pathlib import Path
 
 import streamlit as st
 
-# Ensure repo root is on sys.path when launched via `streamlit run src/ui/app.py`.
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.db.connection import (
-    SEED_DB_PATH,
-    db_label,
-    open_repo_connection,
-    turso_configured,
-)
+from src.db.connection import is_connection_error, turso_configured
 from src.db.models import DIMENSION_NAMES
 from src.db.repository import Repository
-from src.process.llm_classify import ClassifyError
-from src.services.ask_digest import ask_digest
 from src.services.comparison import get_comparison_matrix
 from src.services.digest import digest_kpis, list_digest
-from src.services.feedback import record_feedback
-from src.services.weights import get_effective_weights, save_weights, weights_meta
+from src.services.feedback import get_latest_feedback
+from src.services.weights import get_effective_weights
 from src.ui.components import (
     competitor_labels,
     load_styles,
     render_banner,
     render_comparison_matrix,
-    render_kpi_row,
+    render_kpi,
     render_news_card,
     render_run_history,
+)
+from src.ui.db_session import get_repository, mark_db_dirty
+from src.ui.host_chrome import boot_host_chrome
+from src.ui.pending_actions import (
+    flash,
+    handle_pending_action,
+    pop_flash,
+    queue_action,
 )
 
 CSS_PATH = Path(__file__).resolve().parent / "styles.css"
@@ -50,270 +48,275 @@ DIM_LABELS = {
     "freshness": "Freshness",
     "market_visibility": "Market visibility",
 }
-
-
-def _inject_css() -> None:
-    if "ci_css_loaded" not in st.session_state:
-        st.session_state.ci_css_loaded = True
-    css = load_styles(CSS_PATH)
-    st.markdown(f"<style>{css}</style>", unsafe_allow_html=True)
-
-
-@st.cache_resource
-def _cached_connection(cache_key: str):
-    """Cache key changes when switching Turso ↔ local so connections refresh."""
-    conn, path = open_repo_connection()
-    return conn, path
-
-
-def _get_repo() -> tuple[Repository, Path | None]:
-    if turso_configured():
-        cache_key = "turso"
-    else:
-        from src.db.connection import resolve_db_path
-
-        cache_key = f"local:{resolve_db_path()}"
-    conn, path = _cached_connection(cache_key)
-    return Repository(conn), path
-
-
 WEIGHT_SUM_TOLERANCE = 0.01
 
 
+def _inject_css() -> None:
+    st.markdown(f"<style>{load_styles(CSS_PATH)}</style>", unsafe_allow_html=True)
+
+
 def _weight_sum_status(total: float) -> tuple[str, str]:
-    """Return (level, message) for the live weight-sum indicator."""
     if total > 1.0 + WEIGHT_SUM_TOLERANCE:
-        return (
-            "error",
-            f"Sum is **{total:.2f}** — must be ≤ 1.00. Lower one or more sliders before saving.",
-        )
+        return ("error", f"Sum {total:.2f} — over 1.00. Lower a slider.")
     if abs(total - 1.0) <= WEIGHT_SUM_TOLERANCE:
-        return ("ok", f"Sum is **{total:.2f}** / 1.00 — ready to save.")
-    # 0 < total < 1
-    remaining = 1.0 - total
-    return (
-        "warn",
-        f"Sum is **{total:.2f}** / 1.00 — still **{remaining:.2f}** short. "
-        "Raise sliders until the sum reaches 1.00.",
-    )
+        return ("ok", f"Sum {total:.2f} / 1.00 — ready to save.")
+    return ("warn", f"Sum {total:.2f} / 1.00 — need {1.0 - total:.2f} more.")
 
 
 def _try_run_pipeline(db_path: Path | None) -> tuple[bool, str]:
-    """Invoke live ingestion; cap items to control Gemini cost from the UI."""
     try:
         from src.config_loader import DEFAULT_DB_PATH
         from src.pipeline.run_daily import run_daily
     except ImportError:
-        return (
-            False,
-            "Pipeline module is not available (src.pipeline.run_daily). "
-            "Seed data still powers the demo.",
-        )
+        return False, "Pipeline module is not available."
     try:
-        # Prefer Turso when configured; otherwise always write to runtime DB
-        # (never mutate the committed seed.db from the UI).
-        # WHY limit=1 during demos: one Gemini call max from the UI button.
         target = None if turso_configured() else DEFAULT_DB_PATH
         result = run_daily(trigger="manual", db_path=target, limit=1)
-        return (
-            True,
-            f"Pipeline {result.status}: fetched={result.items_fetched}, "
-            f"new={result.items_new}, scored={result.items_scored}"
-            + (f" — {result.message}" if result.message else ""),
-        )
-    except Exception as exc:  # noqa: BLE001 — surface clean UI message
+        mark_db_dirty()
+        parts = [
+            f"status={result.status}",
+            f"fetched={result.items_fetched}",
+            f"new={result.items_new}",
+            f"scored={result.items_scored}",
+        ]
+        if result.message:
+            parts.append(result.message)
+        msg = "Pipeline " + ", ".join(parts)
+        if result.status == "failed" or (
+            result.items_scored == 0 and result.items_new > 0
+        ):
+            return False, msg
+        if result.items_scored == 0 and result.items_new == 0:
+            return True, msg + " (nothing new to add)"
+        return True, msg
+    except Exception as exc:  # noqa: BLE001
         return False, f"Pipeline failed: {exc}"
 
 
 @st.fragment
 def _weight_editor_fragment(repo: Repository) -> None:
-    """Edit draft weights with a live sum. Digest re-ranks only after a valid Save.
-
-    Uses a fragment so slider ticks do not rebuild the whole news list.
-    """
+    """Desktop: sliders row + side panel. Mobile: columns stack naturally. No frames."""
     current = st.session_state.applied_weights
-    cols = st.columns(len(DIMENSION_NAMES))
-    raw_weights: dict[str, float] = {}
-    for col, name in zip(cols, DIMENSION_NAMES):
-        with col:
-            raw_weights[name] = st.slider(
-                DIM_LABELS.get(name, name),
-                min_value=0.0,
-                max_value=1.0,
-                value=float(current.get(name, 0.2)),
-                step=0.01,
-                key=f"draft_w_{name}",
-            )
+
+    st.markdown('<div class="ci-section-title">Weight tuning</div>', unsafe_allow_html=True)
+    st.caption("Edit sliders to sum **1.00**, then Save. Ranking updates only after save.")
+
+    left, right = st.columns([3.2, 1.15], gap="medium")
+
+    with left:
+        cols = st.columns(len(DIMENSION_NAMES))
+        raw_weights: dict[str, float] = {}
+        for col, name in zip(cols, DIMENSION_NAMES):
+            with col:
+                raw_weights[name] = st.slider(
+                    DIM_LABELS.get(name, name),
+                    min_value=0.0,
+                    max_value=1.0,
+                    value=float(current.get(name, 0.2)),
+                    step=0.01,
+                    key=f"draft_w_{name}",
+                )
 
     total = float(sum(raw_weights.values()))
-    level, message = _weight_sum_status(total)
-    # Visual meter: green at 1.0, amber under, red over.
-    pct = min(total / 1.0, 1.25)  # allow bar to show overflow a bit
-    bar_color = {"ok": "#40BE46", "warn": "#E6A23C", "error": "#E74C3C"}[level]
-    st.markdown(
-        f"""
-        <div style="margin:0.4rem 0 0.6rem 0;">
-          <div style="display:flex;justify-content:space-between;color:#8C9FA4;font-size:0.85rem;">
-            <span>Weight sum</span><span>{total:.2f} / 1.00</span>
-          </div>
-          <div style="height:8px;background:#1B2147;border-radius:9999px;overflow:hidden;">
-            <div style="width:{min(pct,1.0)*100:.1f}%;height:100%;background:{bar_color};"></div>
-          </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
+    dirty = any(
+        abs(float(raw_weights[k]) - float(current.get(k, 0.0))) > 1e-9
+        for k in DIMENSION_NAMES
     )
-    if level == "ok":
-        st.success(message)
-    elif level == "warn":
-        st.warning(message)
-    else:
-        st.error(message)
+    level, message = _weight_sum_status(total)
+    bar_color = {"ok": "#40BE46", "warn": "#E6A23C", "error": "#E74C3C"}[level]
+    fill = min(max(total, 0.0), 1.0) * 100
+    can_save = dirty and abs(total - 1.0) <= WEIGHT_SUM_TOLERANCE
 
-    can_save = abs(total - 1.0) <= WEIGHT_SUM_TOLERANCE
-    if st.button("Save weights", type="primary", disabled=not can_save, use_container_width=True):
-        try:
-            # Exact values as set — no silent re-normalization that "scrambles" ratios.
-            saved = save_weights(repo, {k: float(v) for k, v in raw_weights.items()})
-            st.session_state.applied_weights = saved
-            st.success("Weights saved. Reloading digest ranking…")
+    with right:
+        if dirty:
+            hint = message
+            hint_cls = f"ci-weight-hint ci-weight-hint-{level}"
+        else:
+            hint = "Move a slider to enable Save."
+            hint_cls = "ci-weight-hint"
+        st.markdown(
+            f"""
+            <div class="ci-weight-panel">
+              <div class="ci-weight-sum-row">
+                <span>Weight sum</span><span>{total:.2f} / 1.00</span>
+              </div>
+              <div class="ci-weight-bar">
+                <div class="ci-weight-bar-fill" style="width:{fill:.1f}%;background:{bar_color};"></div>
+              </div>
+              <p class="{hint_cls}">{hint}</p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+        if st.button(
+            "Save weights",
+            type="primary",
+            disabled=not can_save,
+            use_container_width=True,
+            key="save_weights_btn",
+        ):
+            queue_action(
+                "save_weights",
+                {"weights": {k: float(v) for k, v in raw_weights.items()}},
+            )
+
+
+def _render_kpis(kpis: dict) -> None:
+    avg = f"{kpis['avg_score']:.2f}" if kpis["avg_score"] is not None else "—"
+    cards = [
+        (str(kpis["item_count"]), "News items", False),
+        (avg, "Avg relevance", True),
+        (str(kpis["high_score_count"]), "High scores (≥4)", False),
+        (str(kpis["feedback_count"]), "Feedback signals", False),
+    ]
+    cols = st.columns(4)
+    for col, (value, label, glow) in zip(cols, cards):
+        with col:
+            st.markdown(render_kpi(value, label, glow=glow), unsafe_allow_html=True)
+
+
+def _render_feedback_row(repo: Repository, item: dict) -> None:
+    item_id = str(item["id"])
+    pending_key = "pending_down_id"
+    is_editing_down = st.session_state.get(pending_key) == item_id
+    latest = get_latest_feedback(repo, item_id)
+    saved_vote = (latest or {}).get("vote")
+    saved_rationale = ((latest or {}).get("rationale") or "").strip()
+
+    b1, b2, rest = st.columns([0.7, 0.7, 5.5], gap="small")
+    with b1:
+        up_type = "primary" if saved_vote == "up" and not is_editing_down else "secondary"
+        if st.button(
+            "👍",
+            key=f"up_{item_id}",
+            help="Relevant (saved for everyone)",
+            use_container_width=True,
+            type=up_type,
+        ):
+            st.session_state[pending_key] = None
+            queue_action(
+                "feedback_up",
+                {
+                    "item_id": item_id,
+                    "score": float(item.get("relevance_score") or 0),
+                },
+            )
+    with b2:
+        down_selected = saved_vote == "down" or is_editing_down
+        # Marker scopes red styling to this column; primary = selected (red), secondary = idle.
+        st.markdown('<span class="ci-fb-down-slot">down</span>', unsafe_allow_html=True)
+        if st.button(
+            "👎",
+            key=f"down_{item_id}",
+            help="Not relevant (saved for everyone)",
+            use_container_width=True,
+            type="primary" if down_selected else "secondary",
+        ):
+            st.session_state[pending_key] = item_id
+            st.session_state[f"rationale_{item_id}"] = saved_rationale
             st.rerun()
-        except Exception as exc:  # noqa: BLE001
-            st.error(f"Could not save weights: {exc}")
+
+    with rest:
+        if saved_vote == "up" and not is_editing_down:
+            st.caption("Saved feedback: 👍 relevant (shared)")
+        elif saved_vote == "down" and not is_editing_down:
+            note = saved_rationale or "No rationale provided"
+            st.caption(f"Saved feedback: 👎 not relevant — {note}")
+            if st.button("Edit rationale", key=f"edit_fb_{item_id}"):
+                st.session_state[pending_key] = item_id
+                st.session_state[f"rationale_{item_id}"] = saved_rationale
+                st.rerun()
+        elif is_editing_down:
+            rationale_key = f"rationale_{item_id}"
+            if rationale_key not in st.session_state:
+                st.session_state[rationale_key] = saved_rationale
+            rationale = st.text_input(
+                "Why is this not relevant?",
+                key=rationale_key,
+                placeholder="e.g. Not relevant because…",
+            )
+            s1, s2 = st.columns([1.2, 1])
+            with s1:
+                if st.button("Save feedback", key=f"save_fb_{item_id}", type="primary"):
+                    queue_action(
+                        "feedback_down",
+                        {
+                            "item_id": item_id,
+                            "score": float(item.get("relevance_score") or 0),
+                            "rationale": rationale,
+                        },
+                    )
+            with s2:
+                if st.button("Cancel", key=f"cancel_fb_{item_id}"):
+                    st.session_state[pending_key] = None
+                    st.rerun()
 
 
 def _render_digest_tab(repo: Repository, db_path: Path | None) -> None:
-    # Applied weights drive ranking. Draft slider edits are local until Save.
     if "applied_weights" not in st.session_state:
         st.session_state.applied_weights = dict(get_effective_weights(repo))
-    meta = weights_meta(repo)
-
-    st.markdown('<div class="ci-section-title">Weight tuning</div>', unsafe_allow_html=True)
-    st.caption(
-        "Drag sliders until the sum equals **1.00**, then Save. "
-        "Saving is blocked if the sum is over 1.00 or not yet complete. "
-        "The digest re-ranks only after a successful save (no Gemini call)."
-    )
-    if meta.get("updated_at"):
-        st.caption(f"Saved weights source: {meta['source']} · updated {meta['updated_at']}")
 
     _weight_editor_fragment(repo)
 
-    applied = st.session_state.applied_weights
-    st.caption(
-        "Active ranking weights: "
-        + ", ".join(f"{DIM_LABELS[k]}={float(applied[k]):.2f}" for k in DIMENSION_NAMES)
-    )
+    dig_l, dig_r = st.columns([4, 1])
+    with dig_l:
+        st.markdown('<div class="ci-section-title">Daily digest</div>', unsafe_allow_html=True)
+    with dig_r:
+        st.markdown('<span class="ci-run-now-slot">run</span>', unsafe_allow_html=True)
+        if st.button(
+            "Run Now",
+            type="secondary",
+            use_container_width=True,
+            key="run_now_digest",
+        ):
+            queue_action("run_now")
 
-    run_col, info_col = st.columns([1, 3])
-    with run_col:
-        if st.button("Run Now", type="primary", use_container_width=True):
-            ok, msg = _try_run_pipeline(db_path)
-            if ok:
-                st.success(msg)
-                st.rerun()
-            else:
-                st.warning(msg)
-    with info_col:
-        st.caption(db_label(db_path))
-        st.caption(
-            "Token saver: prefer the seeded Turso demo. Run Now calls Gemini "
-            "(capped to 1 item). Avoid Ask the Digest unless you want an API call."
-        )
+    try:
+        items = list_digest(repo, weight_overrides=st.session_state.applied_weights)
+    except Exception as exc:  # noqa: BLE001
+        if not is_connection_error(exc):
+            raise
+        mark_db_dirty()
+        repo, db_path = get_repository()
+        items = list_digest(repo, weight_overrides=st.session_state.applied_weights)
 
-    # Rank only with last-saved/applied weights — not live slider drafts.
-    items = list_digest(repo, weight_overrides=applied)
-    kpis = digest_kpis(repo, items)
-    avg = f"{kpis['avg_score']:.2f}" if kpis["avg_score"] is not None else "—"
-    st.markdown(
-        render_kpi_row(
-            [
-                (str(kpis["item_count"]), "News items", False),
-                (avg, "Avg relevance", True),
-                (str(kpis["high_score_count"]), "High scores (≥4)", False),
-                (str(kpis["feedback_count"]), "Feedback signals", False),
-            ]
-        ),
-        unsafe_allow_html=True,
-    )
+    _render_kpis(digest_kpis(repo, items))
 
-    st.markdown('<div class="ci-section-title">Daily digest</div>', unsafe_allow_html=True)
     if not items:
-        st.warning(
-            "No news items found. Seed data should be loaded into Turso, or run "
-            "`python scripts/seed_db.py` for local demo."
-        )
-    else:
-        for item in items:
-            st.markdown(render_news_card(item), unsafe_allow_html=True)
-            fb_cols = st.columns([1, 1, 4, 1])
-            rationale_key = f"rationale_{item['id']}"
-            with fb_cols[0]:
-                if st.button("👍", key=f"up_{item['id']}", help="Mark relevant"):
-                    try:
-                        record_feedback(
-                            repo,
-                            news_item_id=item["id"],
-                            original_score=float(item.get("relevance_score") or 0),
-                            vote="up",
-                            rationale=st.session_state.get(rationale_key),
-                        )
-                        st.toast("Feedback saved (👍)")
-                    except Exception as exc:  # noqa: BLE001
-                        st.error(f"Could not save feedback: {exc}")
-            with fb_cols[1]:
-                if st.button("👎", key=f"down_{item['id']}", help="Mark not relevant"):
-                    try:
-                        record_feedback(
-                            repo,
-                            news_item_id=item["id"],
-                            original_score=float(item.get("relevance_score") or 0),
-                            vote="down",
-                            rationale=st.session_state.get(rationale_key),
-                        )
-                        st.toast("Feedback saved (👎)")
-                    except Exception as exc:  # noqa: BLE001
-                        st.error(f"Could not save feedback: {exc}")
-            with fb_cols[2]:
-                st.text_input(
-                    "Rationale (optional)",
-                    key=rationale_key,
-                    placeholder="e.g. Not relevant because…",
-                    label_visibility="collapsed",
-                )
+        st.info("No news items yet. Use **Run Now** to ingest.")
+        return
 
-    st.markdown('<div class="ci-section-title">Pipeline run history</div>', unsafe_allow_html=True)
-    runs = repo.list_runs(limit=15)
-    st.markdown(render_run_history(runs), unsafe_allow_html=True)
+    for item in items:
+        st.markdown(render_news_card(item), unsafe_allow_html=True)
+        _render_feedback_row(repo, item)
 
 
 def _render_ask_tab(repo: Repository) -> None:
     st.markdown('<div class="ci-section-title">Ask the digest</div>', unsafe_allow_html=True)
-    st.caption(
-        "Light RAG: retrieve relevant news from our database, then ask Gemini to answer "
-        "using only those items (with citations). Each Ask = 1 Gemini call — skip while "
-        "conserving free-tier tokens; use Daily Digest + Comparison for the demo."
-    )
+    st.caption("Each Ask uses one Gemini call with citations from retrieved news.")
     question = st.text_input(
         "Question",
         placeholder="e.g. What did Snyk announce that matters to JFrog?",
     )
-    if st.button("Ask", type="primary") and question.strip():
-        with st.spinner("Retrieving digest items and asking Gemini…"):
-            try:
-                result = ask_digest(repo, question.strip())
-            except ClassifyError as exc:
-                st.error(str(exc))
-                return
-            except Exception as exc:  # noqa: BLE001
-                st.error(f"Ask failed: {exc}")
-                return
-        st.markdown(result.answer)
-        if result.citations:
-            st.markdown("**Retrieved sources**")
-            for i, c in enumerate(result.citations, start=1):
-                st.markdown(f"[{i}] [{c.title}]({c.url}) — {c.competitor}")
-        st.caption(f"Model: {result.model_id}")
+    ask_clicked = st.button("Ask", type="primary", use_container_width=True)
+    st.markdown('<div class="ci-bottom-spacer"></div>', unsafe_allow_html=True)
+    if ask_clicked and question.strip():
+        queue_action("ask", {"question": question.strip()})
+    elif ask_clicked:
+        flash("Enter a question first", ok=False)
+        st.rerun()
+
+    result = st.session_state.get("_ci_ask_result")
+    if result:
+        st.markdown(result.get("answer") or "")
+        citations = result.get("citations") or []
+        if citations:
+            st.markdown("**Sources**")
+            for i, c in enumerate(citations, start=1):
+                st.markdown(
+                    f"[{i}] [{c.get('title')}]({c.get('url')}) — {c.get('competitor')}"
+                )
 
 
 def _render_comparison_tab() -> None:
@@ -323,23 +326,24 @@ def _render_comparison_tab() -> None:
     )
     company_order, rows, notes, meta = get_comparison_matrix()
     reviewed = meta.get("last_reviewed") or "unknown"
-    by = meta.get("reviewed_by") or "curator"
     st.caption(
-        f"Curated capability matrix (not live news). Last reviewed: **{reviewed}** "
-        f"by {by}. New digest headlines do **not** auto-update these cells — "
-        "a CI analyst edits `config/comparison.yaml` when official product pages change."
+        f"Curated matrix (not live news). Last reviewed: **{reviewed}**. "
+        "Analysts update `config/comparison.yaml` when product pages change."
     )
-    labels = competitor_labels()
     st.markdown(
-        render_comparison_matrix(company_order, rows, labels),
+        render_comparison_matrix(company_order, rows, competitor_labels()),
         unsafe_allow_html=True,
     )
     if notes:
-        st.markdown('<div class="ci-panel">', unsafe_allow_html=True)
         st.markdown("**Context notes**")
         for note in notes:
             st.markdown(f"- {note}")
-        st.markdown("</div>", unsafe_allow_html=True)
+
+
+def _render_runs_tab(repo: Repository) -> None:
+    st.markdown('<div class="ci-section-title">Pipeline run history</div>', unsafe_allow_html=True)
+    st.caption("Cron and manual ingestion runs. Times shown in Israel timezone.")
+    st.markdown(render_run_history(repo.list_runs(limit=30)), unsafe_allow_html=True)
 
 
 def main() -> None:
@@ -350,6 +354,7 @@ def main() -> None:
         initial_sidebar_state="collapsed",
     )
     _inject_css()
+    flash_msg = pop_flash()
 
     st.markdown(
         render_banner(
@@ -361,13 +366,15 @@ def main() -> None:
     )
 
     try:
-        repo, db_path = _get_repo()
+        repo, db_path = get_repository()
     except Exception as exc:  # noqa: BLE001
         st.error(f"Could not open database: {exc}")
         st.stop()
 
-    tab_digest, tab_ask, tab_compare = st.tabs(
-        ["Daily Digest", "Ask the Digest", "Comparison"]
+    handle_pending_action(repo, db_path, run_pipeline=_try_run_pipeline)
+
+    tab_digest, tab_ask, tab_compare, tab_runs = st.tabs(
+        ["Daily Digest", "Ask the Digest", "Comparison", "Pipeline runs"]
     )
     with tab_digest:
         _render_digest_tab(repo, db_path)
@@ -375,6 +382,10 @@ def main() -> None:
         _render_ask_tab(repo)
     with tab_compare:
         _render_comparison_tab()
+    with tab_runs:
+        _render_runs_tab(repo)
+
+    boot_host_chrome(flash=flash_msg)
 
 
 if __name__ == "__main__":
