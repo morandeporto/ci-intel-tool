@@ -261,7 +261,13 @@ DIGEST_SORT_LABELS = {
 
 
 def _on_digest_sort_change() -> None:
+    # Callback runs before widgets render — safe to reset both keys.
+    st.session_state.digest_page = 1
     st.session_state.digest_page_select = 1
+
+
+def _on_digest_page_jump() -> None:
+    st.session_state.digest_page = int(st.session_state.digest_page_select)
 
 
 def _digest_sort_key() -> str:
@@ -272,14 +278,14 @@ def _digest_sort_key() -> str:
 def _render_digest_controls(total: int) -> tuple[int, int]:
     """Sort + pagination on one desktop row. Returns (start, end) slice indices."""
     total_pages = max(1, (total + DIGEST_PAGE_SIZE - 1) // DIGEST_PAGE_SIZE)
-    if "digest_page_select" not in st.session_state:
-        st.session_state.digest_page_select = 1
-    if int(st.session_state.digest_page_select) > total_pages:
-        st.session_state.digest_page_select = total_pages
-    if int(st.session_state.digest_page_select) < 1:
-        st.session_state.digest_page_select = 1
+    if "digest_page" not in st.session_state:
+        st.session_state.digest_page = 1
 
-    page = int(st.session_state.digest_page_select)
+    page = min(max(1, int(st.session_state.digest_page)), total_pages)
+    st.session_state.digest_page = page
+    # Sync widget key BEFORE the selectbox is instantiated (required by Streamlit).
+    st.session_state.digest_page_select = page
+
     start = (page - 1) * DIGEST_PAGE_SIZE
     end = min(start + DIGEST_PAGE_SIZE, total)
     showing = f"Showing {start + 1}–{end} of {total}" if total else "Showing 0 of 0"
@@ -314,7 +320,8 @@ def _render_digest_controls(total: int) -> tuple[int, int]:
             use_container_width=True,
             key="digest_prev",
         ):
-            st.session_state.digest_page_select = page - 1
+            # Only touch digest_page here — select key is synced on the next run.
+            st.session_state.digest_page = page - 1
             st.rerun()
     with jump_c:
         st.selectbox(
@@ -324,19 +331,19 @@ def _render_digest_controls(total: int) -> tuple[int, int]:
             format_func=lambda n: f"Page {n} of {total_pages}",
             label_visibility="collapsed",
             help="Jump to page",
+            on_change=_on_digest_page_jump,
         )
     with next_c:
-        page = int(st.session_state.digest_page_select)
         if st.button(
             "Next →",
             disabled=page >= total_pages,
             use_container_width=True,
             key="digest_next",
         ):
-            st.session_state.digest_page_select = page + 1
+            st.session_state.digest_page = page + 1
             st.rerun()
 
-    page = int(st.session_state.digest_page_select)
+    page = int(st.session_state.digest_page)
     start = (page - 1) * DIGEST_PAGE_SIZE
     end = min(start + DIGEST_PAGE_SIZE, total)
     return start, end
