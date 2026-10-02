@@ -1,0 +1,46 @@
+# Tracked entities for competitive intelligence.
+# Core competitors are enabled; secondary are present but disabled for v1 ingestion.
+# Accent colors are used in the Streamlit UI badges (not official brand assets).
+
+competitors:
+  - id: jfrog
+    display_name: JFrog
+    accent_color: "#40BE46"
+    enabled: true
+    role: self
+
+  - id: sonatype
+    display_name: Sonatype
+    accent_color: "#E87722"
+    enabled: true
+    role: core
+
+  - id: github
+    display_name: GitHub
+    accent_color: "#58A6FF"
+    enabled: true
+    role: core
+
+  - id: gitlab
+    display_name: GitLab
+    accent_color: "#FC6D26"
+    enabled: true
+    role: core
+
+  - id: snyk
+    display_name: Snyk
+    accent_color: "#4C4A73"
+    enabled: true
+    role: core
+
+  - id: cloudsmith
+    display_name: Cloudsmith
+    accent_color: "#00B4D8"
+    enabled: false
+    role: secondary
+
+  - id: harness
+    display_name: Harness
+    accent_color: "#0AADDE"
+    enabled: false
+    role: secondary

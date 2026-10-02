@@ -1,0 +1,10 @@
+# LLM provider settings. Swap model_id (and API key in .env) to change providers.
+# Provider/model must never be hardcoded in application logic.
+# gemini-2.0-flash was retired by Google; gemini-3.8-flash is the current free-tier default.
+
+provider: gemini
+model_id: gemini-3.8-flash
+max_items_per_run: 1
+request_timeout_seconds: 60
+max_excerpt_chars: 4000
+rate_limit_sleep_seconds: 1.0

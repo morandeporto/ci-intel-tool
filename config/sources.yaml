@@ -1,0 +1,92 @@
+# Ingestion sources. URLs verified with scripts/verify_feeds.py — do not invent mock URLs.
+# Only sources with enabled: true and a matching enabled competitor are fetched.
+
+sources:
+  # Official jfrog.com/blog/feed/ returned empty (HTTP 202) during verification.
+  # Medium publication feed is the verified working alternate for JFrog posts.
+  - id: jfrog_medium
+    competitor: jfrog
+    type: rss
+    url: https://medium.com/feed/@JFrog.com
+    enabled: true
+    category: blog
+
+  - id: jfrog_status
+    competitor: jfrog
+    type: rss
+    url: https://status.jfrog.io/history.rss
+    enabled: true
+    category: status
+
+  - id: sonatype_blog
+    competitor: sonatype
+    type: rss
+    url: https://blog.sonatype.com/rss.xml
+    enabled: true
+    category: blog
+
+  - id: github_blog
+    competitor: github
+    type: rss
+    url: https://github.blog/feed/
+    enabled: true
+    category: blog
+
+  - id: github_changelog
+    competitor: github
+    type: rss
+    url: https://github.blog/changelog/feed/
+    enabled: true
+    category: release_notes
+
+  - id: gitlab_blog
+    competitor: gitlab
+    type: atom
+    url: https://about.gitlab.com/atom.xml
+    enabled: true
+    category: blog
+
+  - id: snyk_blog
+    competitor: snyk
+    type: rss
+    url: https://snyk.io/blog/feed/
+    enabled: true
+    category: blog
+
+  - id: devops_com
+    competitor: industry
+    type: rss
+    url: https://devops.com/feed/
+    enabled: true
+    category: devops_news
+
+  # Disabled: The Register returns a bot-challenge HTML page to automated clients (verified).
+  - id: register_devops
+    competitor: industry
+    type: atom
+    url: https://www.theregister.com/software/devops/headlines.atom
+    enabled: false
+    category: devops_news
+
+  # Community feeds can rate-limit (Reddit 429) or flake; pipeline treats per-source
+  # failures as partial and continues. Re-run verify_feeds.py before demos.
+  - id: reddit_devops
+    competitor: industry
+    type: atom
+    url: https://www.reddit.com/r/devops/.rss
+    enabled: true
+    category: community
+
+  - id: hn_artifactory
+    competitor: industry
+    type: rss
+    url: https://hnrss.org/newest?q=Artifactory
+    enabled: true
+    category: community
+
+  - id: hn_snyk
+    competitor: industry
+    type: rss
+    url: https://hnrss.org/newest?q=Snyk
+    enabled: true
+    category: community

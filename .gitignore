@@ -61,6 +61,10 @@ local_settings.py
 db.sqlite3
 db.sqlite3-journal
 
+# Local runtime DB (seed.db is intentionally committed for offline demos)
+data/ci_intel.db
+data/ci_intel.db-journal
+
 # Flask stuff:
 instance/
 .webassets-cache

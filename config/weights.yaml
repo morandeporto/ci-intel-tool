@@ -1,0 +1,20 @@
+# Relevance scoring weights. Must sum to 1.0.
+# Dimension scores (1-5) come from the LLM; the weighted total is computed in code.
+# Changing weights does not require re-querying the LLM.
+
+dimensions:
+  jfrog_relevance:
+    weight: 0.30
+    description: Direct relevance to JFrog's market, products, or customers.
+  competitor_signal:
+    weight: 0.25
+    description: Strength of competitive move from a tracked competitor.
+  strategic_impact:
+    weight: 0.25
+    description: Long-term strategic / platform impact vs tactical noise.
+  freshness:
+    weight: 0.10
+    description: Recency and urgency of the signal.
+  market_visibility:
+    weight: 0.10
+    description: How visible the item is in the broader market narrative.

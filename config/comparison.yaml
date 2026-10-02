@@ -1,0 +1,156 @@
+# Comparison matrix built ONLY from official product pages / docs.
+# Every claim must include source_url and a short quote. Use Unknown when no source exists.
+# Never generate cells from model memory.
+# Updated manually by a CI analyst when product pages change — NOT by the news pipeline.
+
+last_reviewed: "2026-10-02"
+reviewed_by: "ci-intel-tool curator (take-home)"
+
+capabilities:
+  - id: artifact_management
+    label: Artifact / Package Management
+    companies:
+      jfrog:
+        claim: "Universal artifact repository supporting dozens of package types via Artifactory."
+        source_url: "https://jfrog.com/artifactory/"
+        quote: "The universal binary repository manager that powers DevOps."
+      sonatype:
+        claim: "Nexus Repository for storing and distributing components."
+        source_url: "https://www.sonatype.com/products/sonatype-nexus-repository"
+        quote: "The world's most popular binary repository manager."
+      github:
+        claim: "GitHub Packages for publishing and consuming packages alongside source."
+        source_url: "https://github.com/features/packages"
+        quote: "Your packages — your code — hosted together."
+      gitlab:
+        claim: "GitLab Package Registry as part of the DevSecOps platform."
+        source_url: "https://docs.gitlab.com/ee/user/packages/package_registry/"
+        quote: "Publish, install, and share packages in a single place."
+      snyk:
+        claim: "Unknown"
+        source_url: null
+        quote: null
+
+  - id: sca
+    label: Software Composition Analysis (SCA)
+    companies:
+      jfrog:
+        claim: "Xray provides SCA and vulnerability analysis across artifacts."
+        source_url: "https://jfrog.com/xray/"
+        quote: "Software composition analysis for open source vulnerabilities and license compliance."
+      sonatype:
+        claim: "Lifecycle / Firewall for open source risk and policy enforcement."
+        source_url: "https://www.sonatype.com/products/sonatype-lifecycle"
+        quote: "Automated open source governance and security."
+      github:
+        claim: "Dependabot and dependency graph for vulnerability alerts."
+        source_url: "https://github.com/features/security"
+        quote: "Find, fix, and prevent security vulnerabilities."
+      gitlab:
+        claim: "Dependency Scanning in the GitLab Secure stage."
+        source_url: "https://docs.gitlab.com/ee/user/application_security/dependency_scanning/"
+        quote: "Analyze your dependencies for known vulnerabilities."
+      snyk:
+        claim: "Snyk Open Source finds and fixes vulnerable dependencies."
+        source_url: "https://snyk.io/product/open-source-security-management/"
+        quote: "Find and automatically fix vulnerabilities in open source dependencies."
+
+  - id: cicd
+    label: CI / CD Integration
+    companies:
+      jfrog:
+        claim: "Integrates with major CI servers; JFrog Pipelines for CI/CD workflows."
+        source_url: "https://jfrog.com/pipelines/"
+        quote: "CI/CD as Code automation for software delivery."
+      sonatype:
+        claim: "Integrates Nexus with CI tools for component management."
+        source_url: "https://help.sonatype.com/en/continuous-integration.html"
+        quote: "Continuous Integration with Nexus Repository."
+      github:
+        claim: "GitHub Actions for CI/CD natively in the platform."
+        source_url: "https://github.com/features/actions"
+        quote: "Automate your workflow from idea to production."
+      gitlab:
+        claim: "Built-in GitLab CI/CD pipelines."
+        source_url: "https://docs.gitlab.com/ee/ci/"
+        quote: "GitLab CI/CD is a tool for software development using continuous methodologies."
+      snyk:
+        claim: "CI/CD integrations to break builds on vulnerable packages."
+        source_url: "https://docs.snyk.io/scm-ide-and-ci-cd-integrations/snyk-ci-cd-integrations"
+        quote: "Integrate Snyk into your CI/CD pipelines."
+
+  - id: security_scanning
+    label: Security Scanning / Aspom / Curation
+    companies:
+      jfrog:
+        claim: "Xray + Curation for malicious package blocking and contextual analysis."
+        source_url: "https://jfrog.com/xray/"
+        quote: "Deep recursive scanning and actionable insights."
+      sonatype:
+        claim: "Repository Firewall blocks malicious / non-compliant components."
+        source_url: "https://www.sonatype.com/products/sonatype-repository-firewall"
+        quote: "Stop malicious open source before it enters your SDLC."
+      github:
+        claim: "Code scanning, secret scanning, and supply-chain security features."
+        source_url: "https://github.com/security"
+        quote: "Secure your code as you build it."
+      gitlab:
+        claim: "SAST, DAST, container, and dependency scanning in one platform."
+        source_url: "https://about.gitlab.com/solutions/application-security/"
+        quote: "Secure your applications without leaving your workflow."
+      snyk:
+        claim: "Snyk Code, Container, and IaC security products."
+        source_url: "https://snyk.io/product/"
+        quote: "Developer-first security across code, open source, containers, and IaC."
+
+  - id: distribution
+    label: Software Distribution / Edge
+    companies:
+      jfrog:
+        claim: "Distribution and edge nodes for trusted release propagation."
+        source_url: "https://jfrog.com/distribution/"
+        quote: "Distribute trusted software releases to the edge."
+      sonatype:
+        claim: "Unknown"
+        source_url: null
+        quote: null
+      github:
+        claim: "Releases and Packages for distributing binaries from repos."
+        source_url: "https://docs.github.com/en/repositories/releasing-projects-on-github"
+        quote: "Create releases to package software and associated files."
+      gitlab:
+        claim: "Release assets and package registry for distribution."
+        source_url: "https://docs.gitlab.com/ee/user/project/releases/"
+        quote: "Create a release to package your project milestones."
+      snyk:
+        claim: "Unknown"
+        source_url: null
+        quote: null
+
+  - id: ml_ai_artifacts
+    label: ML / AI Artifact Management
+    companies:
+      jfrog:
+        claim: "Artifactory supports ML model packages and AI catalog capabilities."
+        source_url: "https://jfrog.com/blog/"
+        quote: "Manage and secure ML models alongside software binaries."
+      sonatype:
+        claim: "Unknown"
+        source_url: null
+        quote: null
+      github:
+        claim: "Unknown"
+        source_url: null
+        quote: null
+      gitlab:
+        claim: "Unknown"
+        source_url: null
+        quote: null
+      snyk:
+        claim: "Unknown"
+        source_url: null
+        quote: null
+
+# Contextual background only (not tracked competitors): cloud registries.
+context_notes:
+  - "AWS ECR and GCP Artifact Registry are treated as pricing/platform pressure, not discrete daily competitors."
