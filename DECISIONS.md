@@ -5,6 +5,276 @@ Maintained as decisions are made (see `.cursorrules`).
 
 ---
 
+## [2026-10-02] Database: Turso for shared demo; Postgres for real production
+
+**Selected Option (this take-home):** Turso (hosted libSQL / SQLite-compatible) when
+`TURSO_DATABASE_URL` + `TURSO_AUTH_TOKEN` are set; otherwise local SQLite files
+(`data/ci_intel.db` / `data/seed.db`).
+
+**Selected Option (if this were a real production product):** Managed **PostgreSQL**
+(e.g. AWS RDS, Cloud SQL, or Neon/Supabase Postgres) behind a small service API —
+not a laptop SQLite file and not Turso as the long-term system of record.
+
+**Alternatives Considered:**
+- Stay on local SQLite only (rejected for multi-reviewer demos — each laptop diverges)
+- Supabase/Neon Postgres already in the take-home (rejected for now: larger migration
+  from our SQLite schema/repository in a ~2-day window)
+- Turso forever in production (rejected: weaker fit for heavy concurrent writers,
+  complex analytics, org backup/compliance/SSO expectations vs mature Postgres ops)
+
+**Rationale:**
+- **Take-home / shared demo:** Turso keeps the SQLite mental model and schema we already
+  built, adds a free shared remote so every interviewer sees the same digest, weights,
+  and feedback — minimal code change, easy to explain.
+- **Real production:** Competitive-intel is multi-user, needs concurrent writes, richer
+  querying, point-in-time backup, IAM, and usually sits next to other enterprise services.
+  Managed Postgres is the default boring/correct choice; SQLite/Turso remain fine for
+  edge caches or single-tenant appliances, not the primary shared CI warehouse.
+
+**How to Explain in an Interview (20–30 Seconds Verbal):**
+> "For the assignment I kept SQLite and added Turso so reviewers share one database
+> without rewriting the data layer. If this shipped as a real product, I would move the
+> system of record to managed Postgres for concurrency, backups, and operational maturity,
+> and keep SQLite only where it still wins on simplicity."
+
+**JFrog Product Connection (If applicable):**
+Production data stores and app images would be scanned/promoted with Xray + AppTrust;
+connection secrets belong in a secret manager, not in git.
+
+---
+
+## [2026-10-02] Community feeds (Reddit + HN) alongside official vendor RSS
+
+**Selected Option:** Add verified community feeds (`r/devops` Atom, HN filtered via
+hnrss) as `category: community` / `competitor: industry`. No Twitter/X (paid/fragile API).
+
+**Alternatives Considered:** Vendor blogs only (misses market perception); Twitter/X API
+(rejected: cost and auth complexity for a take-home).
+
+**Rationale:** Official feeds = product facts; community feeds = sentiment/early signal.
+Both are pulled the same way (httpx + feedparser) after `verify_feeds.py` checks the URL.
+
+**How to Explain in an Interview (20–30 Seconds Verbal):**
+> "We ingest official blogs for claims we can trust operationally, and Reddit/HN for
+> how practitioners talk about the space — tagged as community so we never confuse
+> sentiment with a sourced comparison-matrix claim."
+
+**JFrog Product Connection (If applicable):**
+Not directly; analogous to separating trusted provenance from noisy signals in Xray.
+
+---
+
+## [2026-10-02] Light RAG "Ask the Digest" now; embeddings later
+
+**Selected Option:** Retrieve top news from SQLite by keyword overlap + relevance, then
+prompt Gemini to answer **only** from those rows with citations. No Vector DB yet.
+
+**Alternatives Considered:** Embeddings + Chroma/Pinecone now (rejected: corpus is small;
+listed as Future Work in the brief); plain chat without retrieval (rejected: invites
+hallucination).
+
+**Rationale:** Shows retrieve→augment→generate without over-engineering. When volume
+grows (thousands of items, semantic queries), swap the retriever for embeddings.
+
+**How to Explain in an Interview (20–30 Seconds Verbal):**
+> "Ask the Digest is intentional light RAG over our own database. The model may only
+> speak from retrieved, linked items. Embeddings come when keyword search stops scaling."
+
+**JFrog Product Connection (If applicable):**
+Grounded answers with source links mirror "never trust unscanned/unknown provenance."
+
+---
+
+## [2026-10-02] Persistable weight overrides in app_settings
+
+**Selected Option:** UI **Save weights** writes normalized weights JSON to
+`app_settings` so all reviewers share the same ranking when using Turso.
+
+**Alternatives Considered:** Session-only sliders (rejected: lost on refresh); write only
+to `weights.yaml` (rejected: not shared across machines).
+
+**Rationale:** Matches the lead-scoring story — humans can set a baseline; feedback loop
+(Future Work) can later adjust automatically.
+
+**How to Explain in an Interview (20–30 Seconds Verbal):**
+> "Sliders re-rank instantly from stored dimensions. Save writes the weights into the
+> shared database so the panel all sees the same ordering."
+
+**JFrog Product Connection (If applicable):**
+Similar spirit to tunable policy packs that teams adjust without re-scanning everything.
+
+---
+
+## [2026-10-02] Seed DB committed; runtime DB gitignored
+
+**Selected Option:** Commit `data/seed.db` (built by `scripts/seed_db.py`) for offline
+demos; gitignore `data/ci_intel.db`. UI `resolve_db_path` prefers a non-empty
+runtime DB, then falls back to seed.
+
+**Alternatives Considered:** Always require a live pipeline before demo (rejected:
+fragile if feeds/API fail during presentation); commit the runtime DB after every
+cron run (rejected: noisy git history, merge conflicts).
+
+**Rationale:** Demo reliability — a hiring panel must see Digest + Comparison even
+when the network or Gemini is unavailable.
+
+**How to Explain in an Interview (20–30 Seconds Verbal):**
+> "Seed data is a first-class demo artifact. Live runs write to a gitignored
+> runtime DB; if that is empty, the UI opens seed.db so the story never depends
+> on a perfect network day."
+
+**JFrog Product Connection (If applicable):**
+Not directly applicable; mirrors the idea of reproducible build artifacts for demos.
+
+---
+
+## [2026-10-02] Model id pinned to gemini-3.8-flash
+
+**Selected Option:** `provider: gemini` and `model_id: gemini-3.8-flash` in
+`config/model.yaml` only — never hardcoded in application logic.
+
+**Alternatives Considered:** `gemini-2.0-flash` (retired by Google); Pro models
+(billing required); hardcoding the model string in `llm_classify.py` (rejected:
+blocks one-line swaps).
+
+**Rationale:** Cost/Latency — Flash free-tier headroom fits a take-home; config
+isolation keeps provider swapping a one-line change plus a different `.env` key.
+
+**How to Explain in an Interview (20–30 Seconds Verbal):**
+> "The model name lives in YAML. We moved off retired gemini-2.0-flash to
+> gemini-3.8-flash. Swapping providers later is a config change, not a rewrite."
+
+**JFrog Product Connection (If applicable):**
+Production images depending on `google-generativeai` would be scanned with Xray
+before promotion.
+
+---
+
+## [2026-10-02] Feedback table built now; learning engine is Future Work
+
+**Selected Option:** SQLite `feedback` table (item id, original score, up/down,
+optional rationale, timestamp) plus 👍/👎 + rationale in the Digest UI. No
+automated weight-adjustment engine in v1.
+
+**Alternatives Considered:** Shipping a learning loop in the take-home (rejected:
+scope risk, hard to evaluate in two days); skipping feedback storage entirely
+(rejected: loses the presentation story and future data).
+
+**Rationale:** Scope discipline — capture the signal now; document the lead-
+scoring-style loop as Future Work so the panel sees intentional maturity, not an
+unfinished half-feature.
+
+**How to Explain in an Interview (20–30 Seconds Verbal):**
+> "Operators can already leave thumbs and a short rationale. The learning engine
+> that would turn that into automatic weight updates is deliberately Future Work—
+> same pattern as a lead-scoring feedback loop."
+
+**JFrog Product Connection (If applicable):**
+Not applicable beyond the product-analogy of continuous policy tuning from user
+signal (similar in spirit to refining curation/policy packs from outcomes).
+
+---
+
+## [2026-10-02] Comparison matrix as curated YAML (not LLM-generated)
+
+**Selected Option:** `config/comparison.yaml` drives the Comparison tab. Every
+cell has `claim`, `source_url`, and `quote`, or is forced to **Unknown** when the
+source is missing. Service layer never invents claims from model memory.
+
+**Alternatives Considered:** Asking the LLM to fill the matrix each run (rejected:
+hallucination risk); scraping product pages live into the matrix (rejected:
+fragile HTML, harder to audit for a take-home).
+
+**Rationale:** Security / trust — competitive claims must be auditable. Curated
+YAML with mandatory source links is the simplest honest approach at this scale.
+
+**How to Explain in an Interview (20–30 Seconds Verbal):**
+> "The comparison matrix is configuration, not generation. If we cannot cite an
+> official page, we show Unknown. That is how we keep hallucinations out of the
+> boardroom view."
+
+**JFrog Product Connection (If applicable):**
+Provenance of claims mirrors supply-chain provenance: trust comes from attested
+sources, not from an opaque model answer.
+
+---
+
+## [2026-10-02] JFrog Medium feed instead of official blog RSS
+
+**Selected Option:** Enable `https://medium.com/feed/@JFrog.com` as `jfrog_medium`
+after verification showed `https://jfrog.com/blog/feed/` returning empty content
+(HTTP 202). Documented in `config/sources.yaml`.
+
+**Alternatives Considered:** Inventing a mock JFrog blog URL (forbidden);
+scraping the HTML blog without a feed (rejected: more brittle, higher injection
+surface); disabling JFrog self-ingestion (rejected: digest would miss own news).
+
+**Rationale:** Reliability — only verified feeds ship; engineering judgment
+documented rather than silent workarounds.
+
+**How to Explain in an Interview (20–30 Seconds Verbal):**
+> "We verified every feed. The official JFrog blog RSS was empty under automation,
+> so we switched to the verified Medium publication feed and wrote that down in
+> config and DECISIONS."
+
+**JFrog Product Connection (If applicable):**
+Not applicable.
+
+---
+
+## [2026-10-02] Scoring dimensions and default weights
+
+**Selected Option:** Five LLM dimensions (1–5) with weights in `config/weights.yaml`
+summing to 1.0: `jfrog_relevance` 0.30, `competitor_signal` 0.25,
+`strategic_impact` 0.25, `freshness` 0.10, `market_visibility` 0.10. Weighted
+total computed in `src/process/scoring.py`; dims stored in `dimension_scores`.
+
+**Alternatives Considered:** Single LLM relevance score (opaque, not retunable);
+equal weights across all dims (weaker signal on JFrog-direct news); embedding
+similarity as the primary ranker (overkill at current volume).
+
+**Rationale:** Transparency + cost — operators (and future feedback learning) can
+retune ranking without re-calling Gemini. UI sliders normalize to sum 1.0.
+
+**How to Explain in an Interview (20–30 Seconds Verbal):**
+> "The model answers five narrow questions. Python applies configurable weights.
+> That separation is what lets us demo weight tuning live and, later, learn from
+> thumbs without burning tokens."
+
+**JFrog Product Connection (If applicable):**
+Multi-dimension scoring is analogous to Xray **contextual analysis**: severity
+alone is incomplete—context (reachability, usage, business impact) changes
+priority. Our dims play the same role for news ranking.
+
+---
+
+## [2026-10-02] Gemini structured JSON classification + daily pipeline
+
+**Selected Option:** `google-generativeai` with Pydantic `ClassificationResult` as
+`response_schema`, plus a thin `run_daily` orchestrator (fetch → dedupe → classify →
+weighted score in code → SQLite). Prompt wraps RSS text in
+`<<<UNTRUSTED_CONTENT>>>` … `<<<END_UNTRUSTED_CONTENT>>>`.
+
+**Alternatives Considered:** LangChain/LlamaIndex orchestration (rejected: heavier
+dependency surface for a linear pipeline); free-form text + regex parsing (rejected:
+brittle); scoring entirely inside the LLM (rejected: weights must stay config-tunable).
+
+**Rationale:** Cost/Simplicity/Security — structured output reduces parse failures;
+`max_items_per_run` + rate-limit sleep caps spend; delimiters document prompt-injection
+awareness without over-engineering a sandbox.
+
+**How to Explain in an Interview (20–30 Seconds Verbal):**
+> "Classification is one Gemini call per new item with a Pydantic JSON schema. Untrusted
+> RSS text sits between explicit delimiters so injection attempts are treated as data.
+> Dimension scores stay in the DB; weighted ranking is pure Python so we can retune
+> weights without re-calling the model."
+
+**JFrog Product Connection (If applicable):**
+In production, dependency scanning for `google-generativeai` would sit behind JFrog
+Xray/Curation before the pipeline image ships.
+
+---
+
 ## [Setup] LLM provider: Google Gemini (free tier)
 
 **Chosen:** Google Gemini via `GEMINI_API_KEY` in `.env`. Prefer a free Flash / Flash-Lite model
