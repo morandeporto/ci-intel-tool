@@ -233,19 +233,57 @@ def render_comparison_matrix(
     """
 
 
+_ERR_PREVIEW_CHARS = 42
+
+
+def _render_error_popup(raw: str | None, uid: str) -> tuple[str, str]:
+    """Return (inline trigger HTML, modal HTML to place outside overflow parents)."""
+    text = (str(raw).strip() if raw is not None else "")
+    if not text:
+        return ('<span class="ci-err-short">—</span>', "")
+    full = _e(text)
+    if len(text) <= _ERR_PREVIEW_CHARS:
+        return (f'<span class="ci-err-short">{full}</span>', "")
+    preview = _e(text[:_ERR_PREVIEW_CHARS].rstrip() + "…")
+    trigger = (
+        f'<label for="ci-err-{uid}" class="ci-err-trigger" title="Show full error">'
+        f"{preview}</label>"
+    )
+    modal = (
+        f'<input type="checkbox" id="ci-err-{uid}" class="ci-err-toggle" />'
+        f'<div class="ci-err-modal" role="dialog" aria-modal="true">'
+        f'<label for="ci-err-{uid}" class="ci-err-backdrop" aria-label="Close"></label>'
+        f'<div class="ci-err-dialog">'
+        f'<div class="ci-err-dialog-head">'
+        f"<span>Error details</span>"
+        f'<label for="ci-err-{uid}" class="ci-err-close" aria-label="Close">×</label>'
+        f"</div>"
+        f'<pre class="ci-err-body">{full}</pre>'
+        f"</div></div>"
+    )
+    return trigger, modal
+
+
 def render_run_history(runs: list[dict[str, Any]]) -> str:
     if not runs:
         return '<p class="ci-muted">No pipeline runs recorded yet.</p>'
     rows_html: list[str] = []
     cards_html: list[str] = []
-    for r in runs:
+    modals_html: list[str] = []
+    for i, r in enumerate(runs):
         started = format_israel_time(r.get("started_at"))
         trigger = _e(r.get("trigger"))
         status = _e(r.get("status"))
         fetched = _e(r.get("items_fetched"))
         new = _e(r.get("items_new"))
         scored = _e(r.get("items_scored"))
-        err = _e(r.get("error_message") or "—")
+        uid = _e(r.get("id") if r.get("id") is not None else i)
+        err_d_trigger, err_d_modal = _render_error_popup(r.get("error_message"), f"d-{uid}")
+        err_m_trigger, err_m_modal = _render_error_popup(r.get("error_message"), f"m-{uid}")
+        if err_d_modal:
+            modals_html.append(err_d_modal)
+        if err_m_modal:
+            modals_html.append(err_m_modal)
         rows_html.append(
             "<tr>"
             f"<td>{_e(started)}</td>"
@@ -254,7 +292,7 @@ def render_run_history(runs: list[dict[str, Any]]) -> str:
             f"<td>{fetched}</td>"
             f"<td>{new}</td>"
             f"<td>{scored}</td>"
-            f"<td>{err}</td>"
+            f'<td class="ci-run-err">{err_d_trigger}</td>'
             "</tr>"
         )
         cards_html.append(
@@ -269,7 +307,7 @@ def render_run_history(runs: list[dict[str, Any]]) -> str:
             f"<span>New <strong>{new}</strong></span>"
             f"<span>Scored <strong>{scored}</strong></span>"
             f"</div>"
-            f'<div class="ci-muted">Error: {err}</div>'
+            f'<div class="ci-run-card-err">Error: {err_m_trigger}</div>'
             f"</article>"
         )
     return f"""
@@ -287,4 +325,5 @@ def render_run_history(runs: list[dict[str, Any]]) -> str:
     <div class="ci-run-mobile" aria-label="Pipeline run cards">
       {"".join(cards_html)}
     </div>
+    <div class="ci-err-modals">{"".join(modals_html)}</div>
     """

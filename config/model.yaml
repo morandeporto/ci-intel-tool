@@ -4,7 +4,7 @@
 
 provider: gemini
 model_id: gemini-3.8-flash
-max_items_per_run: 1
+max_items_per_run: 10
 request_timeout_seconds: 60
 max_excerpt_chars: 4000
 rate_limit_sleep_seconds: 1.0

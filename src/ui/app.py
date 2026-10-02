@@ -71,7 +71,7 @@ def _try_run_pipeline(db_path: Path | None) -> tuple[bool, str]:
         return False, "Pipeline module is not available."
     try:
         target = None if turso_configured() else DEFAULT_DB_PATH
-        result = run_daily(trigger="manual", db_path=target, limit=1)
+        result = run_daily(trigger="manual", db_path=target, limit=10)
         mark_db_dirty()
         parts = [
             f"status={result.status}",
@@ -253,9 +253,100 @@ def _render_feedback_row(repo: Repository, item: dict) -> None:
                     st.rerun()
 
 
+DIGEST_PAGE_SIZE = 10
+DIGEST_SORT_LABELS = {
+    "Creation date": "date",
+    "Relevance": "relevance",
+}
+
+
+def _on_digest_sort_change() -> None:
+    st.session_state.digest_page_select = 1
+
+
+def _digest_sort_key() -> str:
+    label = st.session_state.get("digest_sort_label", "Creation date")
+    return DIGEST_SORT_LABELS.get(label, "date")
+
+
+def _render_digest_controls(total: int) -> tuple[int, int]:
+    """Sort + pagination on one desktop row. Returns (start, end) slice indices."""
+    total_pages = max(1, (total + DIGEST_PAGE_SIZE - 1) // DIGEST_PAGE_SIZE)
+    if "digest_page_select" not in st.session_state:
+        st.session_state.digest_page_select = 1
+    if int(st.session_state.digest_page_select) > total_pages:
+        st.session_state.digest_page_select = total_pages
+    if int(st.session_state.digest_page_select) < 1:
+        st.session_state.digest_page_select = 1
+
+    page = int(st.session_state.digest_page_select)
+    start = (page - 1) * DIGEST_PAGE_SIZE
+    end = min(start + DIGEST_PAGE_SIZE, total)
+    showing = f"Showing {start + 1}–{end} of {total}" if total else "Showing 0 of 0"
+
+    sort_c, meta_c, prev_c, jump_c, next_c = st.columns(
+        [1.65, 1.45, 1.0, 1.35, 1.0],
+        gap="small",
+    )
+    with sort_c:
+        st.markdown(
+            '<div class="ci-digest-controls-marker"></div>'
+            '<div class="ci-digest-field-label">Sort by</div>',
+            unsafe_allow_html=True,
+        )
+        st.selectbox(
+            "Sort by",
+            options=list(DIGEST_SORT_LABELS.keys()),
+            key="digest_sort_label",
+            on_change=_on_digest_sort_change,
+            help="Default: newest creation date first",
+            label_visibility="collapsed",
+        )
+    with meta_c:
+        st.markdown(
+            f'<div class="ci-digest-meta">{showing}</div>',
+            unsafe_allow_html=True,
+        )
+    with prev_c:
+        if st.button(
+            "← Previous",
+            disabled=page <= 1,
+            use_container_width=True,
+            key="digest_prev",
+        ):
+            st.session_state.digest_page_select = page - 1
+            st.rerun()
+    with jump_c:
+        st.selectbox(
+            "Jump to page",
+            options=list(range(1, total_pages + 1)),
+            key="digest_page_select",
+            format_func=lambda n: f"Page {n} of {total_pages}",
+            label_visibility="collapsed",
+            help="Jump to page",
+        )
+    with next_c:
+        page = int(st.session_state.digest_page_select)
+        if st.button(
+            "Next →",
+            disabled=page >= total_pages,
+            use_container_width=True,
+            key="digest_next",
+        ):
+            st.session_state.digest_page_select = page + 1
+            st.rerun()
+
+    page = int(st.session_state.digest_page_select)
+    start = (page - 1) * DIGEST_PAGE_SIZE
+    end = min(start + DIGEST_PAGE_SIZE, total)
+    return start, end
+
+
 def _render_digest_tab(repo: Repository, db_path: Path | None) -> None:
     if "applied_weights" not in st.session_state:
         st.session_state.applied_weights = dict(get_effective_weights(repo))
+    if "digest_sort_label" not in st.session_state:
+        st.session_state.digest_sort_label = "Creation date"
 
     _weight_editor_fragment(repo)
 
@@ -272,14 +363,23 @@ def _render_digest_tab(repo: Repository, db_path: Path | None) -> None:
         ):
             queue_action("run_now")
 
+    sort_by = _digest_sort_key()
     try:
-        items = list_digest(repo, weight_overrides=st.session_state.applied_weights)
+        items = list_digest(
+            repo,
+            weight_overrides=st.session_state.applied_weights,
+            sort_by=sort_by,  # type: ignore[arg-type]
+        )
     except Exception as exc:  # noqa: BLE001
         if not is_connection_error(exc):
             raise
         mark_db_dirty()
         repo, db_path = get_repository()
-        items = list_digest(repo, weight_overrides=st.session_state.applied_weights)
+        items = list_digest(
+            repo,
+            weight_overrides=st.session_state.applied_weights,
+            sort_by=sort_by,  # type: ignore[arg-type]
+        )
 
     _render_kpis(digest_kpis(repo, items))
 
@@ -287,7 +387,8 @@ def _render_digest_tab(repo: Repository, db_path: Path | None) -> None:
         st.info("No news items yet. Use **Run Now** to ingest.")
         return
 
-    for item in items:
+    start, end = _render_digest_controls(len(items))
+    for item in items[start:end]:
         st.markdown(render_news_card(item), unsafe_allow_html=True)
         _render_feedback_row(repo, item)
 

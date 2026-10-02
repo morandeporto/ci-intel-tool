@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from src.config_loader import load_weights
 from src.db.models import DIMENSION_NAMES
 from src.db.repository import Repository
 from src.process.scoring import recalculate_scores, weighted_score
+
+DigestSort = Literal["date", "relevance"]
 
 
 def _dimensions_from_row(row: dict[str, Any]) -> dict[str, int] | None:
@@ -17,14 +19,20 @@ def _dimensions_from_row(row: dict[str, Any]) -> dict[str, int] | None:
     return {name: int(row[name]) for name in DIMENSION_NAMES}
 
 
+def _item_created_at(row: dict[str, Any]) -> str:
+    """Prefer ingest time (DB creation); fall back to source publish time."""
+    return str(row.get("ingested_at") or row.get("published_at") or "")
+
+
 def list_digest(
     repo: Repository,
     *,
     weight_overrides: dict[str, float] | None = None,
     limit: int | None = None,
     persist_scores: bool = False,
+    sort_by: DigestSort = "date",
 ) -> list[dict[str, Any]]:
-    """Return digest items sorted by relevance score (highest first).
+    """Return digest items sorted by creation date (default) or relevance.
 
     When ``weight_overrides`` is provided, scores are recalculated in memory from
     stored dimension scores so the LLM is never re-queried. Set
@@ -53,13 +61,17 @@ def list_digest(
         for row in rows:
             row["dimensions"] = _dimensions_from_row(row)
 
-    rows.sort(
-        key=lambda r: (
-            r["relevance_score"] is None,
-            -(r["relevance_score"] or 0.0),
-            r.get("ingested_at") or "",
+    if sort_by == "relevance":
+        rows.sort(
+            key=lambda r: (
+                r["relevance_score"] is None,
+                -(r["relevance_score"] or 0.0),
+                _item_created_at(r),
+            )
         )
-    )
+    else:
+        rows.sort(key=_item_created_at, reverse=True)
+
     if limit is not None:
         rows = rows[:limit]
     return rows

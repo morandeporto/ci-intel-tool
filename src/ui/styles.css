@@ -533,6 +533,35 @@ div[data-testid="stAlert"] {
 }
 .ci-unknown { color: var(--ci-text-secondary); font-weight: 700; }
 
+/* Digest sort + pager: space below KPIs, one aligned row on desktop */
+div[data-testid="stHorizontalBlock"]:has(.ci-digest-controls-marker) {
+  margin-top: 1.25rem !important;
+  margin-bottom: 1rem !important;
+  align-items: flex-end !important;
+  gap: 0.65rem !important;
+}
+.ci-digest-controls-marker {
+  display: none !important;
+  height: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+}
+.ci-digest-field-label {
+  color: var(--ci-text-secondary);
+  font-size: 0.92rem;
+  font-weight: 600;
+  margin: 0 0 0.4rem;
+  line-height: 1.2;
+}
+.ci-digest-meta {
+  color: var(--ci-text-secondary);
+  font-size: 0.95rem;
+  padding-bottom: 0.55rem;
+  text-align: left;
+  white-space: nowrap;
+}
+
 .ci-run-table {
   width: 100%;
   border-collapse: collapse;
@@ -540,6 +569,11 @@ div[data-testid="stAlert"] {
   display: block;
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
+}
+.ci-run-table table {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
 }
 .ci-run-table th, .ci-run-table td {
   padding: 0.65rem 0.75rem;
@@ -551,6 +585,144 @@ div[data-testid="stAlert"] {
   color: var(--ci-text-secondary);
   font-weight: 700;
   font-size: 0.98rem;
+}
+.ci-run-table th:nth-child(1) { width: 18%; }
+.ci-run-table th:nth-child(2) { width: 10%; }
+.ci-run-table th:nth-child(3) { width: 10%; }
+.ci-run-table th:nth-child(4),
+.ci-run-table th:nth-child(5),
+.ci-run-table th:nth-child(6) { width: 8%; }
+.ci-run-table th:nth-child(7),
+.ci-run-table td.ci-run-err {
+  width: 28%;
+  max-width: 220px;
+  white-space: nowrap;
+  overflow: visible;
+  vertical-align: middle;
+}
+.ci-run-table td.ci-run-err > .ci-err-short,
+.ci-run-table td.ci-run-err > .ci-err-trigger {
+  max-width: 200px;
+}
+.ci-err-short {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+}
+.ci-err-trigger {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #E8A0A0;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  vertical-align: bottom;
+}
+.ci-err-trigger:hover {
+  color: #FFB4B4;
+}
+.ci-err-toggle {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+  width: 0;
+  height: 0;
+}
+.ci-err-modals {
+  position: relative;
+  z-index: 2147483000;
+}
+.ci-err-modal {
+  display: none;
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: 2147483000;
+  align-items: center;
+  justify-content: center;
+  padding: 1.25rem;
+  box-sizing: border-box;
+}
+.ci-err-toggle:checked + .ci-err-modal {
+  display: flex;
+}
+.ci-err-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(7, 11, 25, 0.78);
+  cursor: pointer;
+}
+.ci-err-dialog {
+  position: relative;
+  z-index: 1;
+  width: min(96vw, 900px);
+  max-width: 96vw;
+  max-height: min(85vh, 640px);
+  background: linear-gradient(160deg, #14243D, #0A0F21);
+  border: 1px solid rgba(231, 76, 60, 0.45);
+  border-radius: 16px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.55);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+.ci-err-dialog-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.85rem 1.1rem;
+  border-bottom: 1px solid var(--ci-border);
+  font-weight: 700;
+  font-size: 1.02rem;
+  color: var(--ci-text);
+  flex-shrink: 0;
+}
+.ci-err-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.85rem;
+  height: 1.85rem;
+  border-radius: 9999px;
+  border: 1px solid var(--ci-border);
+  color: var(--ci-text-secondary);
+  cursor: pointer;
+  font-size: 1.25rem;
+  line-height: 1;
+  user-select: none;
+  flex-shrink: 0;
+}
+.ci-err-close:hover {
+  color: var(--ci-text);
+  border-color: rgba(231, 76, 60, 0.7);
+}
+.ci-err-body {
+  margin: 0;
+  padding: 1rem 1.15rem 1.2rem;
+  overflow: auto;
+  white-space: pre-wrap !important;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  max-width: 100%;
+  font-family: var(--ci-font);
+  font-size: 0.98rem;
+  line-height: 1.55;
+  color: #F0D0D0;
+}
+.ci-run-card-err {
+  font-size: 0.95rem;
+  color: var(--ci-text-secondary);
+  max-width: 100%;
+  overflow: hidden;
 }
 
 /* Mobile card substitutes — hidden on desktop */
