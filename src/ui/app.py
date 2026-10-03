@@ -30,6 +30,7 @@ from src.services.digest import (
 from src.services.feedback import get_latest_feedback
 from src.services.weights import get_effective_weights
 from src.ui.components import (
+    FAVICON_PATH,
     competitor_labels,
     format_israel_time,
     load_styles,
@@ -57,6 +58,16 @@ DIM_LABELS = {
     "market_visibility": "Market visibility",
 }
 WEIGHT_SUM_TOLERANCE = 0.01
+
+# st.tabs resets to the first tab on every rerun (breaks Ask / Run Now UX).
+# A keyed radio keeps the active section in session_state across pending actions.
+MAIN_TAB_KEY = "_ci_main_tab"
+MAIN_TABS = (
+    "Daily Digest",
+    "Ask the Digest",
+    "Comparison",
+    "Pipeline runs",
+)
 
 
 def _inject_css() -> None:
@@ -741,7 +752,7 @@ def _render_runs_tab(repo: Repository) -> None:
 def main() -> None:
     st.set_page_config(
         page_title="CI Intel | JFrog",
-        page_icon="◈",
+        page_icon=str(FAVICON_PATH) if FAVICON_PATH.is_file() else "◈",
         layout="wide",
         initial_sidebar_state="collapsed",
     )
@@ -765,16 +776,27 @@ def main() -> None:
 
     handle_pending_action(repo, db_path, run_pipeline=_try_run_pipeline)
 
-    tab_digest, tab_ask, tab_compare, tab_runs = st.tabs(
-        ["Daily Digest", "Ask the Digest", "Comparison", "Pipeline runs"]
+    if MAIN_TAB_KEY not in st.session_state:
+        st.session_state[MAIN_TAB_KEY] = MAIN_TABS[0]
+    elif st.session_state[MAIN_TAB_KEY] not in MAIN_TABS:
+        st.session_state[MAIN_TAB_KEY] = MAIN_TABS[0]
+
+    st.markdown('<div class="ci-main-nav-marker"></div>', unsafe_allow_html=True)
+    active_tab = st.radio(
+        "Main section",
+        list(MAIN_TABS),
+        horizontal=True,
+        key=MAIN_TAB_KEY,
+        label_visibility="collapsed",
     )
-    with tab_digest:
+
+    if active_tab == "Daily Digest":
         _render_digest_tab(repo, db_path)
-    with tab_ask:
+    elif active_tab == "Ask the Digest":
         _render_ask_tab(repo)
-    with tab_compare:
+    elif active_tab == "Comparison":
         _render_comparison_tab()
-    with tab_runs:
+    else:
         _render_runs_tab(repo)
 
     boot_host_chrome(flash=flash_msg)

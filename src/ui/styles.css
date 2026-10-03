@@ -1,4 +1,4 @@
-/* CI Intel Tool - JFrog-inspired design tokens (emulated look, not official assets).
+/* CI Intel Tool - JFrog-inspired design tokens (emulated look; local mark in assets/).
    Readable type scale for older users, mobile-first wrapping for navigation. */
 
 @import url("https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;600;700&display=swap");
@@ -219,35 +219,54 @@ div[data-testid="column"]:has(.ci-fb-down-slot) div[data-testid="stButton"] > bu
   box-shadow: 0 0 16px rgba(211, 47, 47, 0.45) !important;
 }
 
-/* ---- Tabs: underline on desktop, wrap on mobile (no pill+bar clash) ---- */
-button[data-baseweb="tab"] {
-  border-radius: 0 !important;
+/* ---- Main nav: keyed radio (persists across reruns; st.tabs does not) ---- */
+.ci-main-nav-marker {
+  display: none !important;
+  height: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+}
+div[data-testid="stElementContainer"]:has(.ci-main-nav-marker) {
+  margin: 0 !important;
+  padding: 0 !important;
+  min-height: 0 !important;
+}
+/* Marker + radio are sibling element-containers under the same vertical block */
+div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .ci-main-nav-marker)
+  > div[data-testid="stElementContainer"]:has(div[data-testid="stRadio"]) {
+  margin-top: 0.35rem !important;
+  margin-bottom: 0.85rem !important;
+  border-bottom: 1px solid var(--ci-border) !important;
+  padding-bottom: 0.15rem !important;
+}
+div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .ci-main-nav-marker)
+  div[data-testid="stRadio"] > div {
+  flex-wrap: wrap !important;
+  gap: 0.15rem 0.2rem !important;
+  background: transparent !important;
+}
+div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .ci-main-nav-marker)
+  div[data-testid="stRadio"] label {
   background-color: transparent !important;
   color: var(--ci-text-secondary) !important;
   padding: 0.65rem 1rem !important;
-  margin-right: 0.2rem !important;
+  margin: 0 !important;
   border: none !important;
   border-bottom: 2px solid transparent !important;
+  border-radius: 0 !important;
   font-weight: 600 !important;
   font-size: 1.02rem !important;
   white-space: nowrap !important;
 }
-button[data-baseweb="tab"][aria-selected="true"] {
-  background-color: transparent !important;
+div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .ci-main-nav-marker)
+  div[data-testid="stRadio"] label:has(input:checked) {
   color: var(--ci-brand) !important;
   border-bottom: 2px solid var(--ci-brand) !important;
 }
-div[data-baseweb="tab-list"] {
-  gap: 0.2rem;
-  flex-wrap: wrap !important;
-  background: transparent !important;
-  border-bottom: 1px solid var(--ci-border) !important;
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
-}
-div[data-baseweb="tab-highlight"],
-div[data-baseweb="tab-border"] {
-  display: none !important;
+div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .ci-main-nav-marker)
+  div[data-testid="stRadio"] label > div:first-child {
+  display: none !important; /* hide native radio circle */
 }
 
 .stSlider label {
@@ -290,6 +309,33 @@ div[data-testid="column"] div.stButton > button {
   padding: 1.15rem 1.35rem;
   margin-bottom: 0.85rem;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
+}
+.ci-banner-inner {
+  display: flex;
+  align-items: center;
+  gap: 1rem 1.25rem;
+}
+.ci-banner-logo-wrap {
+  flex: 0 0 auto;
+  width: 4.75rem;
+  height: 4.75rem;
+  border-radius: 1.15rem;
+  background: rgba(7, 11, 25, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.28);
+}
+.ci-banner-logo {
+  width: 3.35rem;
+  height: 3.35rem;
+  object-fit: contain;
+  display: block;
+}
+.ci-banner-copy {
+  min-width: 0;
+  flex: 1 1 auto;
 }
 .ci-banner h1 {
   margin: 0;
@@ -956,6 +1002,16 @@ div[data-testid="stDataFrame"] [data-testid="stDataFrameResizable"] {
     border-radius: 16px;
     margin-bottom: 1rem;
   }
+  .ci-banner-inner { gap: 0.85rem; }
+  .ci-banner-logo-wrap {
+    width: 3.85rem;
+    height: 3.85rem;
+    border-radius: 0.95rem;
+  }
+  .ci-banner-logo {
+    width: 2.75rem;
+    height: 2.75rem;
+  }
   .ci-banner h1 { font-size: 1.4rem; }
   .ci-banner p { font-size: 1rem; }
 
@@ -967,7 +1023,8 @@ div[data-testid="stDataFrame"] [data-testid="stDataFrameResizable"] {
   .ci-card-title { font-size: 1.12rem; }
   .ci-card-summary { font-size: 1.02rem; }
 
-  button[data-baseweb="tab"] {
+  div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .ci-main-nav-marker)
+    div[data-testid="stRadio"] label {
     font-size: 0.95rem !important;
     padding: 0.55rem 0.75rem !important;
   }

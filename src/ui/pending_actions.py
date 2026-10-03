@@ -110,6 +110,8 @@ def _execute(
         }
         # Clear the input for the next follow-up.
         st.session_state["ask_question_input"] = ""
+        # Stay on Ask after the post-work rerun (radio nav, not st.tabs).
+        st.session_state["_ci_main_tab"] = "Ask the Digest"
         return True, "Answer ready"
     return False, f"Unknown action: {name}"
 

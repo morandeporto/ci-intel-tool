@@ -216,7 +216,7 @@ matrix stays curated YAML until an analyst promotes a sourced claim.
 
 ## UI note
 
-The Streamlit app **emulates** a JFrog-like dark aesthetic (navy `#070B19`, green `#40BE46`, Open Sans via theme/CSS). It is **not** an official JFrog component library-no official logos or brand assets are copied.
+The Streamlit app **emulates** a JFrog-like dark aesthetic (navy `#070B19`, green `#40BE46`, Open Sans via theme/CSS). It is **not** an official JFrog component library. A local JFrog mark under `src/ui/assets/` is used only as the browser favicon and hero banner mark for this take-home demo.
 
 **Streamlit is pinned** at `streamlit==1.39.0` in `requirements.txt` because custom CSS for pills/tabs is fragile across Streamlit releases. Keep that pin for demos.
 

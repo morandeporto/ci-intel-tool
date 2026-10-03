@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import base64
 import html
 from datetime import datetime, timezone
+from functools import lru_cache
+from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -11,6 +14,17 @@ from src.config_loader import load_competitors
 
 SCORE_MAX = 5.0
 ISRAEL_TZ = ZoneInfo("Asia/Jerusalem")
+ASSETS_DIR = Path(__file__).resolve().parent / "assets"
+LOGO_PATH = ASSETS_DIR / "jfrog-logo.png"
+FAVICON_PATH = ASSETS_DIR / "jfrog-favicon.png"
+
+
+@lru_cache(maxsize=1)
+def _logo_data_uri() -> str:
+    """Embed the hero logo as a data URI so markdown HTML can render it offline."""
+    raw = LOGO_PATH.read_bytes()
+    encoded = base64.b64encode(raw).decode("ascii")
+    return f"data:image/png;base64,{encoded}"
 
 
 def _e(value: Any) -> str:
@@ -59,11 +73,19 @@ def load_styles(css_path) -> str:
 
 
 def render_banner(title_green: str, title_white: str, subtitle: str) -> str:
+    logo_src = _logo_data_uri()
     return f"""
     <div class="ci-banner">
-      <h1><span class="ci-half-green">{_e(title_green)}</span>
-      <span class="ci-half-white">{_e(title_white)}</span></h1>
-      <p>{_e(subtitle)}</p>
+      <div class="ci-banner-inner">
+        <div class="ci-banner-logo-wrap" aria-hidden="true">
+          <img class="ci-banner-logo" src="{logo_src}" alt="JFrog" width="72" height="72" />
+        </div>
+        <div class="ci-banner-copy">
+          <h1><span class="ci-half-green">{_e(title_green)}</span>
+          <span class="ci-half-white">{_e(title_white)}</span></h1>
+          <p>{_e(subtitle)}</p>
+        </div>
+      </div>
     </div>
     """
 
