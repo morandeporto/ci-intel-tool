@@ -180,14 +180,18 @@ Today operators can nudge ranking with weight sliders and record 👍/👎 plus 
 
 | Pitfall | What we saw | Mitigation |
 |---------|-------------|------------|
-| Reddit 429 | `r/devops` rate-limits automated clients | Per-source errors are partial; continue other sources; telemetry in Pipeline runs |
+| Gemini free-tier **daily quota is per model** | `PerDay` errors stop generate; Ask/Run Now compete with cron | Soft `llm_usage` + `model_daily_limits` per model id; optional `fallback_model`; Ask shows a friendly message; remaining items become `pending_scoring` (not mid-score fallback) |
+| Classification cost / rate | One call per item burned the free tier fast | **Batched classification** (`batch_size: 5`) with per-article delimiters; per-model min interval (RPM) |
+| `pending_scoring` backlog | Quota mid-run left items unscored | Hide unscored in the UI by default; end-of-run heal + nightly `retry_pending.yml` (08:30 UTC) share the same soft budget and atomic `scoring` claims |
+| HN / hnrss.org **502** | Intermittent gateway errors on `hn_*` feeds | 5xx retry + backoff for `hn_*`; left enabled with YAML notes when still failing |
+| Reddit noise / 429 | `r/devops` was 25/25 filtered under the strict gate | Disabled `reddit_devops` (2026-10-03) with YAML note |
 | JFrog blog empty / HTTP 202 | `jfrog.com/blog/feed/` often returns 202 with empty body | Marked `user_agent: browser`; keep research feed; Medium disabled as stale |
 | Browser-like User-Agent | Some hosts reject the honest tool UA | Default UA is identifiable `ci-intel-tool/1.0`; **only** `jfrog_blog` uses browser UA today (listed in YAML). We do **not** bypass 403/challenges |
 | Date-only timestamps | Midnight stamps look “old” vs a 24h morning run | **48h** freshness window |
 | Future-dated status items | Status feeds sometimes post future maintenance windows | Drop `published_at > now` |
 | Huge archives | `snyk.io/blog/feed/` has ~1670 historical items | Parse/normalize **only in-window** entries before selection |
 | Feeds that do not exist | Guessed `/blog/feed` paths 404; IR/CISA 403 | Verify with `scripts/verify_feeds.py`; disable with dated YAML notes |
-| Fallback / silent success | Model outages could look like a green run | `is_fallback` flag; cron fails if **every** selected item falls back |
+| Fallback / silent success | Model outages could look like a green run | `is_fallback` flag; cron fails if **every** selected item falls back; high fallback → `degraded` |
 
 ### Why not every source type from the brief — and how we'd ship them in production
 

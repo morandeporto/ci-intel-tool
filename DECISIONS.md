@@ -5,6 +5,86 @@ Maintained as decisions are made (see `.cursorrules`).
 
 ---
 
+## [2026-10-03] Self-healing scoring: pending state, automatic rescore, nightly retry
+
+**Selected Option:** On daily PerDay quota exhaustion, persist remaining items as
+`status=pending_scoring` (not mid-score `is_fallback`). End-of-run rescore and a
+nightly GHA job (`.github/workflows/retry_pending.yml`, 08:30 UTC) reclaim those
+rows (plus recent fallbacks) via atomic `status='scoring'` claims, batched Gemini
+calls, and a shared soft `llm_usage` budget. Stuck `scoring` rows >30 minutes
+return to `pending_scoring`. Daily + retry workflows share a concurrency group.
+
+**Alternatives Considered:**
+- Mid-score fallback for quota (rejected: pollutes ranking / looks “scored”)
+- Manual-only `--rescore-fallbacks` (rejected: demo/ops still break overnight)
+- Separate Ask API key (rejected: single `GEMINI_API_KEY` keeps the take-home simple)
+
+**Rationale:** Reliability + cost — free-tier PerDay caps are real; pending state
+lets the system heal after reset without lying about scores.
+
+**How to Explain in an Interview (20–30 Seconds Verbal):**
+> "When Gemini hits its daily quota we stop immediately, park unscored items as
+> pending_scoring, and retry them at the end of the run and again at night after
+> the free-tier reset — with atomic claims so two jobs never classify the same row."
+
+**JFrog Product Connection (If applicable):**
+Similar to deferred deep scans that re-queue when a scanner is capacity-limited
+rather than writing a fake “clean” result.
+
+---
+
+## [2026-10-03] Batched classification and per-model quota budgeting
+
+**Selected Option:** Classify up to `batch_size: 5` items per Gemini call (JSON
+array keyed by item id; unknown/duplicate ids rejected; missing → one individual
+retry → fallback). Soft counters in `llm_usage` (`date`, `purpose`, `model`,
+`calls`) with `model_daily_limits` and per-model min intervals. Hard stop on API
+`PerDay` (or exhausted 429 retries). Config splits `pipeline_model`,
+`fallback_model`, and `ask_model` (ids never guessed — use `scripts/list_gemini_models.py`).
+
+**Alternatives Considered:**
+- One call per item (rejected: burns the free tier)
+- Hard-coded reset hour (rejected: use provider retry hint + cron safety margin)
+- Shared global daily call cap only (rejected: Ask and pipeline need per-model limits)
+
+**Rationale:** Cost + resilience — batching cuts RPM/RPD usage; per-model budgets
+match how Google meters free tier.
+
+**How to Explain in an Interview (20–30 Seconds Verbal):**
+> "We batch five articles per classify call with injection-safe delimiters, track
+> soft usage per model, and when PerDay hits we park items as pending instead of
+> inventing average scores — optionally continuing on a configured fallback model."
+
+**JFrog Product Connection (If applicable):**
+Quota-aware workers echo Artifactory/Xray rate limiting — protect the shared
+service so interactive users still get headroom.
+
+---
+
+## [2026-10-03] Relevance keyword expansion (strict gate)
+
+**Selected Option:** Expand `strong_keywords` in `relevance.yaml` with CRA / Cyber
+Resilience Act, Node.js, OSS security, dependency/package-manager terms,
+supply-chain (hyphen), MCP, CloudBees, token theft / leaked credentials — without
+changing weights or other thresholds. Disable `reddit_devops` after 25/25 filtered.
+
+**Alternatives Considered:**
+- Lower the gate to weak keywords (rejected: more noise into Gemini)
+- Keep Reddit enabled for “coverage” (rejected: zero signal at 25/25 filtered)
+
+**Rationale:** Signal quality — strict gate stays strict; vocabulary tracks real
+CI/supply-chain language so industry/community items can pass when on-topic.
+
+**How to Explain in an Interview (20–30 Seconds Verbal):**
+> "The keyword gate is a cheap pre-filter before Gemini. I widened the strong list
+> for CRA, OSS, and MCP-style terms, and turned off Reddit devops after it was
+> pure noise — without touching score weights."
+
+**JFrog Product Connection (If applicable):**
+Policy allow-lists before expensive scans — same pattern as Curation policies.
+
+---
+
 ## [2026-10-03] Pipeline degraded status for high fallback rate
 
 **Selected Option:** Persist `items_classified_ok`, `items_fallback`, and
