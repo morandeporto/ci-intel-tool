@@ -363,7 +363,8 @@ sources:
     enabled: true
     category: community
     last_verified: "2026-10-03"
-    note: "Lower trust HN keyword feed via hnrss.org."
+    # Left enabled despite intermittent hnrss.org 502 (retry+backoff in fetcher).
+    note: "hnrss.org intermittent 502 (2026-10-03 re-verify still failed after 5xx retries)."
 
   - id: hn_sbom
     competitor: null
@@ -374,7 +375,7 @@ sources:
     enabled: true
     category: community
     last_verified: "2026-10-03"
-    note: "Lower trust HN keyword feed via hnrss.org."
+    note: "hnrss.org intermittent 502 (2026-10-03 re-verify still failed after 5xx retries)."
 
   - id: hn_artifactory
     competitor: null
@@ -385,7 +386,7 @@ sources:
     enabled: true
     category: community
     last_verified: "2026-10-03"
-    note: "Lower trust HN keyword feed via hnrss.org."
+    note: "hnrss.org; 2026-10-03 re-verify OK after 5xx retries (1 in-window item)."
 
   - id: hn_jfrog
     competitor: null
@@ -396,7 +397,7 @@ sources:
     enabled: true
     category: community
     last_verified: "2026-10-03"
-    note: "Lower trust HN keyword feed via hnrss.org."
+    note: "hnrss.org intermittent 502 (2026-10-03 re-verify still failed after 5xx retries)."
 
   - id: hn_mcp_registry
     competitor: null
@@ -407,7 +408,7 @@ sources:
     enabled: true
     category: community
     last_verified: "2026-10-03"
-    note: "Lower trust HN phrase query for MCP registry (verified 2026-10-03)."
+    note: "hnrss.org MCP registry phrase; 2026-10-03 re-verify OK after 5xx retries."
 
   - id: hn_snyk
     competitor: null

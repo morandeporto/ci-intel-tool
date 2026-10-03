@@ -39,6 +39,9 @@ BROWSER_USER_AGENT = (
 DEFAULT_USER_AGENT = HONEST_USER_AGENT
 DEFAULT_TIMEOUT_SECONDS = 15.0
 DEFAULT_FETCH_CONCURRENCY = 8
+# hnrss.org occasionally returns 502/503; a short backoff usually recovers.
+HN_5XX_MAX_ATTEMPTS = 3
+HN_5XX_BASE_SECONDS = 1.0
 
 ACCEPT_HEADERS = (
     "application/rss+xml, application/atom+xml, application/xml, text/xml, */*"
@@ -151,6 +154,42 @@ def _entry_in_window(
     return published >= now - timedelta(hours=window_hours)
 
 
+def _should_retry_5xx(source_id: str) -> bool:
+    """HN keyword feeds via hnrss.org are prone to intermittent 502/503."""
+    return source_id.startswith("hn_")
+
+
+def _http_get_with_optional_5xx_retry(
+    client: httpx.Client,
+    url: str,
+    *,
+    headers: dict[str, str],
+    timeout_s: float,
+    source_id: str,
+    sleep_fn=time.sleep,
+) -> httpx.Response:
+    """GET with exponential backoff on 5xx for hn_* feeds only."""
+    attempts = HN_5XX_MAX_ATTEMPTS if _should_retry_5xx(source_id) else 1
+    last_response: httpx.Response | None = None
+    for attempt in range(attempts):
+        response = client.get(url, headers=headers, timeout=timeout_s)
+        last_response = response
+        if response.status_code < 500 or attempt >= attempts - 1:
+            return response
+        delay = HN_5XX_BASE_SECONDS * (2**attempt)
+        logger.warning(
+            "HTTP %s for %s (attempt %s/%s); retrying in %.1fs",
+            response.status_code,
+            source_id,
+            attempt + 1,
+            attempts,
+            delay,
+        )
+        sleep_fn(delay)
+    assert last_response is not None
+    return last_response
+
+
 def fetch_source(
     source: dict[str, Any],
     *,
@@ -196,7 +235,13 @@ def fetch_source(
     try:
         assert client is not None
         # Per-request timeout so a shared client cannot stretch beyond config.
-        response = client.get(url, headers=headers, timeout=timeout_s)
+        response = _http_get_with_optional_5xx_retry(
+            client,
+            url,
+            headers=headers,
+            timeout_s=timeout_s,
+            source_id=source_id,
+        )
         http_status = str(response.status_code)
         response.raise_for_status()
     except httpx.TimeoutException:
