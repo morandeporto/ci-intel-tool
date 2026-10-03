@@ -225,3 +225,6 @@ __marimo__/
 
 # Local interview notes (not part of the submitted deliverable)
 PRESENTATION_PREP.md
+
+# One-off DB cleanup backups (never commit production dumps)
+backups/
