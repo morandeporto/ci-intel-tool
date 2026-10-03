@@ -1,11 +1,17 @@
 # Ingestion sources. URLs verified with scripts/verify_feeds.py — do not invent mock URLs.
-# Only sources with enabled: true and a matching enabled competitor are fetched.
+# kind: official_competitor | emerging | industry | community
+# gate: "off" (never keyword-filtered) | "strict" (needs a strong keyword)
+# Quote "off" — YAML 1.1 otherwise parses bare off as boolean false.
+# competitor: entity id from competitors.yaml, or null for pure industry/community outlets.
+# Only sources with enabled: true and (competitor null/industry OR enabled competitor) are fetched.
 
 sources:
   # Official jfrog.com/blog/feed/ returned empty (HTTP 202) during verification.
   # Medium publication feed is the verified working alternate for JFrog posts.
   - id: jfrog_medium
     competitor: jfrog
+    kind: official_competitor
+    gate: "off"
     type: rss
     url: https://medium.com/feed/@JFrog.com
     enabled: true
@@ -13,6 +19,8 @@ sources:
 
   - id: jfrog_status
     competitor: jfrog
+    kind: official_competitor
+    gate: "off"
     type: rss
     url: https://status.jfrog.io/history.rss
     enabled: true
@@ -20,6 +28,8 @@ sources:
 
   - id: sonatype_blog
     competitor: sonatype
+    kind: official_competitor
+    gate: "off"
     type: rss
     url: https://blog.sonatype.com/rss.xml
     enabled: true
@@ -27,6 +37,8 @@ sources:
 
   - id: github_blog
     competitor: github
+    kind: official_competitor
+    gate: "off"
     type: rss
     url: https://github.blog/feed/
     enabled: true
@@ -34,6 +46,8 @@ sources:
 
   - id: github_changelog
     competitor: github
+    kind: official_competitor
+    gate: "off"
     type: rss
     url: https://github.blog/changelog/feed/
     enabled: true
@@ -41,6 +55,8 @@ sources:
 
   - id: gitlab_blog
     competitor: gitlab
+    kind: official_competitor
+    gate: "off"
     type: atom
     url: https://about.gitlab.com/atom.xml
     enabled: true
@@ -48,6 +64,8 @@ sources:
 
   - id: snyk_blog
     competitor: snyk
+    kind: official_competitor
+    gate: "off"
     type: rss
     url: https://snyk.io/blog/feed/
     enabled: true
@@ -56,6 +74,8 @@ sources:
   # Release notes / security-focused feeds (verified 2026-10-02).
   - id: gitlab_releases
     competitor: gitlab
+    kind: official_competitor
+    gate: "off"
     type: atom
     url: https://about.gitlab.com/releases.xml
     enabled: true
@@ -63,6 +83,8 @@ sources:
 
   - id: gitlab_security_releases
     competitor: gitlab
+    kind: official_competitor
+    gate: "off"
     type: atom
     url: https://about.gitlab.com/security-releases.xml
     enabled: true
@@ -70,6 +92,8 @@ sources:
 
   - id: github_security
     competitor: github
+    kind: official_competitor
+    gate: "off"
     type: rss
     url: https://github.blog/category/security/feed/
     enabled: true
@@ -77,28 +101,36 @@ sources:
 
   - id: sonatype_security
     competitor: sonatype
+    kind: official_competitor
+    gate: "off"
     type: rss
     url: https://blog.sonatype.com/tag/security/rss.xml
     enabled: true
     category: security_research
 
-  # Industry security research (not a tracked competitor — competitor: industry).
+  # Industry security research (not a tracked competitor).
   - id: project_zero
-    competitor: industry
+    competitor: null
+    kind: industry
+    gate: "strict"
     type: atom
     url: https://googleprojectzero.blogspot.com/feeds/posts/default
     enabled: true
     category: security_research
 
   - id: unit42
-    competitor: industry
+    competitor: null
+    kind: industry
+    gate: "strict"
     type: rss
     url: https://unit42.paloaltonetworks.com/feed/
     enabled: true
     category: security_research
 
   - id: devops_com
-    competitor: industry
+    competitor: null
+    kind: industry
+    gate: "strict"
     type: rss
     url: https://devops.com/feed/
     enabled: true
@@ -106,30 +138,39 @@ sources:
 
   # Disabled: The Register returns a bot-challenge HTML page to automated clients (verified).
   - id: register_devops
-    competitor: industry
+    competitor: null
+    kind: industry
+    gate: "strict"
     type: atom
     url: https://www.theregister.com/software/devops/headlines.atom
     enabled: false
     category: devops_news
+    note: "Disabled: bot-challenge HTML page to automated clients."
 
   # Community feeds can rate-limit (Reddit 429) or flake; pipeline treats per-source
   # failures as partial and continues. Re-run verify_feeds.py before demos.
   - id: reddit_devops
-    competitor: industry
+    competitor: null
+    kind: community
+    gate: "strict"
     type: atom
     url: https://www.reddit.com/r/devops/.rss
     enabled: true
     category: community
 
   - id: hn_artifactory
-    competitor: industry
+    competitor: null
+    kind: community
+    gate: "strict"
     type: rss
     url: https://hnrss.org/newest?q=Artifactory
     enabled: true
     category: community
 
   - id: hn_snyk
-    competitor: industry
+    competitor: null
+    kind: community
+    gate: "strict"
     type: rss
     url: https://hnrss.org/newest?q=Snyk
     enabled: true
@@ -141,4 +182,5 @@ sources:
   # - Pricing pages: HTML product pages; need scheduled snapshot/diff, not feedparser.
   # - Job boards (Greenhouse/Lever/etc.): HTML APIs, not stable public RSS for CI.
   # Track those as Future Work (dedicated scrapers + change detection).
+  # Emerging / additional industry candidates are added only after verify_feeds.py passes.
   # -------------------------------------------------------------------------

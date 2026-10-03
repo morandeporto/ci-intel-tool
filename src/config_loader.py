@@ -70,10 +70,34 @@ def load_weights(config_dir: Path | None = None) -> dict[str, float]:
 def load_model_config(config_dir: Path | None = None) -> dict[str, Any]:
     base = config_dir or CONFIG_DIR
     data = _load_yaml(base / "model.yaml")
-    required = ("provider", "model_id", "max_items_per_run", "max_excerpt_chars")
+    required = (
+        "provider",
+        "model_id",
+        "max_items_per_run",
+        "max_per_source",
+        "window_hours",
+        "max_excerpt_chars",
+    )
     for key in required:
         if key not in data:
             raise ConfigError(f"model.yaml missing required key: {key}")
+    selection = data.get("selection") or {}
+    reserved = selection.get("reserved_slots") or {}
+    for slot_key in ("official_competitor", "emerging", "industry_community"):
+        if slot_key not in reserved:
+            raise ConfigError(
+                f"model.yaml selection.reserved_slots missing key: {slot_key}"
+            )
+    return data
+
+
+def load_relevance_config(config_dir: Path | None = None) -> dict[str, Any]:
+    """Keyword gate lists and title exclude patterns from relevance.yaml."""
+    base = config_dir or CONFIG_DIR
+    data = _load_yaml(base / "relevance.yaml")
+    for key in ("strong_keywords", "weak_keywords", "exclude_title_patterns"):
+        if key not in data or not isinstance(data[key], list):
+            raise ConfigError(f"relevance.yaml must contain a list for {key}")
     return data
 
 
@@ -82,19 +106,55 @@ def load_comparison(config_dir: Path | None = None) -> dict[str, Any]:
     return _load_yaml(base / "comparison.yaml")
 
 
+_VALID_KINDS = frozenset(
+    {"official_competitor", "emerging", "industry", "community"}
+)
+_VALID_GATES = frozenset({"off", "strict"})
+
+
 def enabled_sources(
     sources: list[dict[str, Any]] | None = None,
     competitors: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
-    """Return sources that are enabled and whose competitor is enabled (or industry)."""
+    """Return enabled sources whose competitor is enabled, null, or legacy 'industry'."""
     sources = sources if sources is not None else load_sources()
     competitors = competitors if competitors is not None else load_competitors()
-    enabled_ids = {
-        c["id"] for c in competitors if c.get("enabled", False)
-    }
-    enabled_ids.add("industry")  # industry outlets are always eligible
-    return [
-        s
-        for s in sources
-        if s.get("enabled", False) and s.get("competitor") in enabled_ids
-    ]
+    enabled_ids = {c["id"] for c in competitors if c.get("enabled", False)}
+    result: list[dict[str, Any]] = []
+    for source in sources:
+        if not source.get("enabled", False):
+            continue
+        kind = source.get("kind")
+        gate = source.get("gate")
+        # YAML 1.1 treats bare `off` as boolean false — normalize before validate.
+        if gate is False:
+            gate = "off"
+            source["gate"] = "off"
+        elif gate is True:
+            raise ConfigError(
+                f"source {source.get('id')!r}: gate must be \"off\" or \"strict\" "
+                f"(quote strings in YAML so off is not parsed as boolean)"
+            )
+        if kind not in _VALID_KINDS:
+            raise ConfigError(
+                f"source {source.get('id')!r} has invalid kind {kind!r}; "
+                f"expected one of {sorted(_VALID_KINDS)}"
+            )
+        if gate not in _VALID_GATES:
+            raise ConfigError(
+                f"source {source.get('id')!r} has invalid gate {gate!r}; "
+                f"expected one of {sorted(_VALID_GATES)}"
+            )
+        competitor = source.get("competitor")
+        # null / industry = non-vendor outlets; otherwise require an enabled competitor.
+        if competitor is None or competitor == "industry" or competitor in enabled_ids:
+            result.append(source)
+    return result
+
+
+def source_competitor_tag(source: dict[str, Any]) -> str:
+    """DB/UI competitor tag: entity id, or 'industry' when the source has no vendor."""
+    competitor = source.get("competitor")
+    if competitor is None or competitor == "":
+        return "industry"
+    return str(competitor)

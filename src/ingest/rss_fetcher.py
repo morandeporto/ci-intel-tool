@@ -12,7 +12,7 @@ from typing import Any
 import feedparser
 import httpx
 
-from src.config_loader import enabled_sources, load_model_config
+from src.config_loader import enabled_sources, load_model_config, source_competitor_tag
 from src.ingest.normalize import (
     DEFAULT_MAX_EXCERPT_CHARS,
     NormalizedEntry,
@@ -114,7 +114,7 @@ def fetch_source(
         # Attach provenance so normalize / dry-run can attribute items.
         item = dict(entry)
         item["_source_id"] = source_id
-        item["_competitor"] = source.get("competitor")
+        item["_competitor"] = source_competitor_tag(source)
         item["_source_url"] = url
         raw_entries.append(item)
     return raw_entries, None

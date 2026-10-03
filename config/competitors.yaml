@@ -1,5 +1,6 @@
 # Tracked entities for competitive intelligence.
-# Core competitors are enabled; secondary are present but disabled for v1 ingestion.
+# tier: self | core | secondary | emerging
+# Emerging candidates stay enabled: false until a feed passes verification (step 10).
 # Accent colors are used in the Streamlit UI badges (not official brand assets).
 
 competitors:
@@ -7,40 +8,71 @@ competitors:
     display_name: JFrog
     accent_color: "#40BE46"
     enabled: true
-    role: self
+    tier: self
 
   - id: sonatype
     display_name: Sonatype
     accent_color: "#E87722"
     enabled: true
-    role: core
+    tier: core
 
   - id: github
     display_name: GitHub
     accent_color: "#58A6FF"
     enabled: true
-    role: core
+    tier: core
 
   - id: gitlab
     display_name: GitLab
     accent_color: "#FC6D26"
     enabled: true
-    role: core
+    tier: core
 
   - id: snyk
     display_name: Snyk
     accent_color: "#4C4A73"
     enabled: true
-    role: core
+    tier: core
 
   - id: cloudsmith
     display_name: Cloudsmith
     accent_color: "#00B4D8"
     enabled: false
-    role: secondary
+    tier: secondary
 
   - id: harness
     display_name: Harness
     accent_color: "#0AADDE"
     enabled: false
-    role: secondary
+    tier: secondary
+
+  # Emerging players — disabled until RSS/Atom verification passes.
+  - id: chainguard
+    display_name: Chainguard
+    accent_color: "#7C3AED"
+    enabled: false
+    tier: emerging
+
+  - id: socket
+    display_name: Socket
+    accent_color: "#F59E0B"
+    enabled: false
+    tier: emerging
+
+  - id: endor_labs
+    display_name: Endor Labs
+    accent_color: "#EC4899"
+    enabled: false
+    tier: emerging
+
+  - id: anchore
+    display_name: Anchore
+    accent_color: "#14B8A6"
+    enabled: false
+    tier: emerging
+
+  - id: docker
+    display_name: Docker
+    accent_color: "#2496ED"
+    enabled: false
+    tier: emerging

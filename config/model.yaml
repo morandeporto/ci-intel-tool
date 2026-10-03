@@ -4,7 +4,19 @@
 
 provider: gemini
 model_id: gemini-3.8-flash
-max_items_per_run: 10
+max_items_per_run: 20
+max_per_source: 3
+# Freshness window: only consider items published within this many hours.
+# Wider than 24h so date-only midnight timestamps and one missed cron day are covered.
+window_hours: 48
 request_timeout_seconds: 60
 max_excerpt_chars: 4000
 rate_limit_sleep_seconds: 1.0
+
+# Reserved minimum slots by source kind when selecting items for the LLM.
+# Unused slots flow to other kinds. industry + community share one combined pool.
+selection:
+  reserved_slots:
+    official_competitor: 8
+    emerging: 4
+    industry_community: 6
