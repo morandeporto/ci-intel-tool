@@ -595,7 +595,8 @@ div[data-testid="stAlert"] {
 .ci-h-scroll,
 .ci-matrix,
 .ci-run-table,
-div[data-testid="stDataFrame"] {
+div[data-testid="stDataFrame"],
+div[data-testid="stDataFrameResizable"] {
   cursor: grab;
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
@@ -606,13 +607,16 @@ div[data-testid="stDataFrame"] {
 .ci-h-scroll.ci-dragging,
 .ci-matrix.ci-dragging,
 .ci-run-table.ci-dragging,
-div[data-testid="stDataFrame"].ci-dragging {
+div[data-testid="stDataFrame"].ci-dragging,
+div[data-testid="stDataFrameResizable"].ci-dragging {
   cursor: grabbing;
   user-select: none;
 }
 .ci-h-scroll.ci-dragging *,
 .ci-matrix.ci-dragging *,
-.ci-run-table.ci-dragging * {
+.ci-run-table.ci-dragging *,
+div[data-testid="stDataFrame"].ci-dragging *,
+div[data-testid="stDataFrameResizable"].ci-dragging * {
   cursor: grabbing !important;
   user-select: none !important;
   pointer-events: none;
@@ -620,6 +624,7 @@ div[data-testid="stDataFrame"].ci-dragging {
 
 .ci-matrix {
   width: 100%;
+  max-width: 100%;
   border-collapse: separate;
   border-spacing: 0;
   margin-bottom: 1.25rem;

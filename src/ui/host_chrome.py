@@ -93,95 +93,125 @@ def _parent_doc_expr() -> str:
 
 
 def _table_drag_scroll_js(doc_expr: str) -> str:
-    """Mouse/pointer drag-to-pan for wide tables (keeps touch + wheel scroll)."""
+    """Mouse drag-to-pan for wide tables (keeps touch + wheel scroll).
+
+    WHY: Streamlit runs this inside a short-lived components.html iframe. Handlers must
+    live on window.parent and be re-attached on every boot — a one-shot install flag
+    left dead listeners after reruns, so drag worked once then stopped.
+    """
     return f"""
   (function installTableDragScroll() {{
     var doc = {doc_expr};
+    var win = doc.defaultView || window.parent || window;
+
+    var prev = win.__ciTableDragScrollHandlers;
+    if (prev) {{
+      try {{
+        doc.removeEventListener('mousedown', prev.down, true);
+        doc.removeEventListener('mousemove', prev.move, true);
+        doc.removeEventListener('mouseup', prev.up, true);
+        win.removeEventListener('mousemove', prev.move, true);
+        win.removeEventListener('mouseup', prev.up, true);
+        doc.removeEventListener('click', prev.click, true);
+        doc.removeEventListener('dragstart', prev.dragstart, true);
+      }} catch (e) {{}}
+    }}
+
     var SELECTOR = [
       '.ci-h-scroll',
       '.ci-matrix',
       '.ci-run-table',
       '[data-testid="stDataFrame"]',
-      '[data-testid="stDataFrameResizable"]'
+      '[data-testid="stDataFrameResizable"]',
+      '[data-testid="stDataFrame"] .dvn-scroller'
     ].join(',');
-    var DRAG_THRESHOLD = 4;
+    var DRAG_THRESHOLD = 3;
+    var state = null;
+    var suppressClick = false;
 
     function isInteractive(target) {{
       return !!(target && target.closest &&
         target.closest('a, button, input, label, select, textarea, [role="button"]'));
     }}
 
-    function bindDragScroll(el) {{
-      if (!el || el.dataset.ciDragScroll === '1') return;
-      el.dataset.ciDragScroll = '1';
-      var dragging = false;
-      var moved = false;
-      var startX = 0;
-      var originScroll = 0;
-      var pointerId = null;
+    function canScrollX(el) {{
+      return !!(el && el.nodeType === 1 && el.scrollWidth > el.clientWidth + 1);
+    }}
 
-      function endDrag(ev) {{
-        if (!dragging) return;
-        dragging = false;
-        el.classList.remove('ci-dragging');
-        if (pointerId !== null && el.releasePointerCapture) {{
-          try {{ el.releasePointerCapture(pointerId); }} catch (e) {{}}
-        }}
-        pointerId = null;
-        if (moved && ev && ev.preventDefault) ev.preventDefault();
+    function findScrollable(target) {{
+      if (!target || !target.closest) return null;
+      var root = target.closest(SELECTOR);
+      if (!root) return null;
+      if (canScrollX(root)) return root;
+      var nested = root.querySelectorAll('*');
+      for (var i = 0; i < nested.length; i++) {{
+        if (canScrollX(nested[i])) return nested[i];
       }}
-
-      el.addEventListener('pointerdown', function (ev) {{
-        if (ev.pointerType === 'touch') return;
-        if (ev.button !== 0) return;
-        if (isInteractive(ev.target)) return;
-        if (el.scrollWidth <= el.clientWidth + 1) return;
-        dragging = true;
-        moved = false;
-        startX = ev.clientX;
-        originScroll = el.scrollLeft;
-        pointerId = ev.pointerId;
-        if (el.setPointerCapture) {{
-          try {{ el.setPointerCapture(pointerId); }} catch (e) {{}}
-        }}
-      }});
-
-      el.addEventListener('pointermove', function (ev) {{
-        if (!dragging) return;
-        var dx = ev.clientX - startX;
-        if (!moved && Math.abs(dx) < DRAG_THRESHOLD) return;
-        moved = true;
-        el.classList.add('ci-dragging');
-        el.scrollLeft = originScroll - dx;
-        ev.preventDefault();
-      }});
-
-      el.addEventListener('pointerup', endDrag);
-      el.addEventListener('pointercancel', endDrag);
-      el.addEventListener('lostpointercapture', endDrag);
-
-      el.addEventListener('click', function (ev) {{
-        if (!moved) return;
-        ev.preventDefault();
-        ev.stopPropagation();
-        moved = false;
-      }}, true);
-
-      el.addEventListener('dragstart', function (ev) {{
-        if (dragging || moved) ev.preventDefault();
-      }});
+      return null;
     }}
 
-    function scan() {{
-      doc.querySelectorAll(SELECTOR).forEach(bindDragScroll);
+    function endDrag(ev) {{
+      if (!state) return;
+      var moved = state.moved;
+      try {{ state.el.classList.remove('ci-dragging'); }} catch (e) {{}}
+      state = null;
+      if (moved) {{
+        suppressClick = true;
+        setTimeout(function () {{ suppressClick = false; }}, 0);
+        if (ev && ev.preventDefault) ev.preventDefault();
+      }}
     }}
 
-    scan();
-    if (!doc.documentElement.dataset.ciDragScrollObs) {{
-      doc.documentElement.dataset.ciDragScrollObs = '1';
-      var obs = new MutationObserver(function () {{ scan(); }});
-      obs.observe(doc.body || doc.documentElement, {{ childList: true, subtree: true }});
+    function onDown(ev) {{
+      if (ev.button !== 0) return;
+      if (isInteractive(ev.target)) return;
+      var el = findScrollable(ev.target);
+      if (!el) return;
+      state = {{
+        el: el,
+        startX: ev.clientX,
+        originScroll: el.scrollLeft,
+        moved: false
+      }};
     }}
+
+    function onMove(ev) {{
+      if (!state) return;
+      var dx = ev.clientX - state.startX;
+      if (!state.moved && Math.abs(dx) < DRAG_THRESHOLD) return;
+      state.moved = true;
+      state.el.classList.add('ci-dragging');
+      state.el.scrollLeft = state.originScroll - dx;
+      if (ev.preventDefault) ev.preventDefault();
+    }}
+
+    function onClick(ev) {{
+      if (!suppressClick) return;
+      suppressClick = false;
+      ev.preventDefault();
+      ev.stopPropagation();
+    }}
+
+    function onDragStart(ev) {{
+      if (state) ev.preventDefault();
+    }}
+
+    doc.addEventListener('mousedown', onDown, true);
+    doc.addEventListener('mousemove', onMove, true);
+    doc.addEventListener('mouseup', endDrag, true);
+    win.addEventListener('mousemove', onMove, true);
+    win.addEventListener('mouseup', endDrag, true);
+    doc.addEventListener('click', onClick, true);
+    doc.addEventListener('dragstart', onDragStart, true);
+
+    win.__ciTableDragScrollHandlers = {{
+      down: onDown,
+      move: onMove,
+      up: endDrag,
+      click: onClick,
+      dragstart: onDragStart
+    }};
+    win.__ciTableDragScrollVersion = 3;
   }})();
 """
 
