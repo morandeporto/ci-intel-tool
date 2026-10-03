@@ -1,6 +1,5 @@
 # Tracked entities for competitive intelligence.
 # tier: self | core | secondary | emerging
-# Emerging candidates stay enabled: false until a feed passes verification (step 10).
 # Accent colors are used in the Streamlit UI badges (not official brand assets).
 
 competitors:
@@ -37,42 +36,41 @@ competitors:
   - id: cloudsmith
     display_name: Cloudsmith
     accent_color: "#00B4D8"
-    enabled: false
+    enabled: true
     tier: secondary
 
   - id: harness
     display_name: Harness
     accent_color: "#0AADDE"
-    enabled: false
+    enabled: true
     tier: secondary
 
-  # Emerging players — disabled until RSS/Atom verification passes.
   - id: chainguard
     display_name: Chainguard
     accent_color: "#7C3AED"
-    enabled: false
+    enabled: true
     tier: emerging
 
   - id: socket
     display_name: Socket
     accent_color: "#F59E0B"
-    enabled: false
+    enabled: true
     tier: emerging
 
   - id: endor_labs
     display_name: Endor Labs
     accent_color: "#EC4899"
-    enabled: false
+    enabled: true
     tier: emerging
 
   - id: anchore
     display_name: Anchore
     accent_color: "#14B8A6"
-    enabled: false
+    enabled: true
     tier: emerging
 
   - id: docker
     display_name: Docker
     accent_color: "#2496ED"
-    enabled: false
+    enabled: true
     tier: emerging

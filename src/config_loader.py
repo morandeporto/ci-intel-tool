@@ -76,6 +76,8 @@ def load_model_config(config_dir: Path | None = None) -> dict[str, Any]:
         "max_items_per_run",
         "max_per_source",
         "window_hours",
+        "fetch_timeout_seconds",
+        "fetch_concurrency",
         "max_excerpt_chars",
     )
     for key in required:

@@ -17,10 +17,19 @@ def test_model_config_has_window_and_selection_slots() -> None:
     assert cfg["window_hours"] == 48
     assert cfg["max_items_per_run"] == 20
     assert cfg["max_per_source"] == 3
+    assert cfg["fetch_timeout_seconds"] == 15
+    assert cfg["fetch_concurrency"] == 8
     reserved = cfg["selection"]["reserved_slots"]
     assert reserved["official_competitor"] == 8
     assert reserved["emerging"] == 4
     assert reserved["industry_community"] == 6
+
+
+def test_emerging_and_secondary_competitors_enabled() -> None:
+    by_id = {c["id"]: c for c in load_competitors()}
+    assert by_id["chainguard"]["enabled"] is True
+    assert by_id["cloudsmith"]["enabled"] is True
+    assert by_id["harness"]["tier"] == "secondary"
 
 
 def test_relevance_config_lists() -> None:
@@ -49,6 +58,12 @@ def test_enabled_sources_allow_null_competitor() -> None:
     assert null_comp, "expected at least one industry/community source with competitor: null"
     for source in null_comp:
         assert source["gate"] == "strict"
+    by_id = {s["id"]: s for s in load_sources()}
+    assert by_id["jfrog_status"]["enabled"] is False
+    assert by_id["jfrog_medium"]["enabled"] is False
+    assert by_id["hn_snyk"]["enabled"] is False
+    assert by_id["chainguard_blog"]["enabled"] is True
+    assert by_id["hn_mcp_registry"]["enabled"] is True
 
 
 def test_source_competitor_tag_maps_null_to_industry() -> None:
@@ -62,4 +77,4 @@ def test_competitors_have_tier_including_emerging() -> None:
     assert by_id["sonatype"]["tier"] == "core"
     assert by_id["cloudsmith"]["tier"] == "secondary"
     assert by_id["chainguard"]["tier"] == "emerging"
-    assert by_id["chainguard"]["enabled"] is False
+    assert by_id["chainguard"]["enabled"] is True

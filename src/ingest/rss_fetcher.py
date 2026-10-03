@@ -1,13 +1,17 @@
 """Fetch RSS/Atom feeds for configured competitors.
 
 Per-source errors are collected and returned; a single bad feed never aborts
-the whole run. Content is treated as untrusted text (no LLM in this module).
+the whole run. Fetches run concurrently with a per-source timeout. Content is
+treated as untrusted text (no LLM in this module).
 """
 
 from __future__ import annotations
 
+import logging
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import feedparser
@@ -20,10 +24,25 @@ from src.ingest.normalize import (
     normalize_entry,
 )
 
-DEFAULT_USER_AGENT = (
-    "ci-intel-tool/1.0 (+https://github.com/jfrog-ci-intel; take-home assignment)"
+logger = logging.getLogger(__name__)
+
+# Honest identifiable UA — prefer this. Browser UA only for sources that need it.
+HONEST_USER_AGENT = (
+    "ci-intel-tool/1.0 (+https://github.com/morandeporto/ci-intel-tool; "
+    "take-home assignment)"
 )
-DEFAULT_TIMEOUT_SECONDS = 30.0
+BROWSER_USER_AGENT = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+)
+# Backward-compatible alias used by verify_feeds / diagnose scripts.
+DEFAULT_USER_AGENT = HONEST_USER_AGENT
+DEFAULT_TIMEOUT_SECONDS = 15.0
+DEFAULT_FETCH_CONCURRENCY = 8
+
+ACCEPT_HEADERS = (
+    "application/rss+xml, application/atom+xml, application/xml, text/xml, */*"
+)
 
 
 @dataclass
@@ -61,14 +80,27 @@ class NormalizedFetchResult:
     source_stats: list[SourceFetchStat] = field(default_factory=list)
 
 
-def _timeout_seconds(timeout: float | None) -> float:
+def _fetch_timeout_seconds(timeout: float | None) -> float:
     if timeout is not None:
         return float(timeout)
     try:
         cfg = load_model_config()
-        return float(cfg.get("request_timeout_seconds", DEFAULT_TIMEOUT_SECONDS))
+        return float(cfg.get("fetch_timeout_seconds", DEFAULT_TIMEOUT_SECONDS))
     except Exception:
         return DEFAULT_TIMEOUT_SECONDS
+
+
+def _timeout_seconds(timeout: float | None) -> float:
+    """Alias kept for callers/scripts that used the old name."""
+    return _fetch_timeout_seconds(timeout)
+
+
+def _fetch_concurrency() -> int:
+    try:
+        cfg = load_model_config()
+        return max(1, int(cfg.get("fetch_concurrency", DEFAULT_FETCH_CONCURRENCY)))
+    except Exception:
+        return DEFAULT_FETCH_CONCURRENCY
 
 
 def _max_excerpt_chars() -> int:
@@ -79,43 +111,117 @@ def _max_excerpt_chars() -> int:
         return DEFAULT_MAX_EXCERPT_CHARS
 
 
+def _window_hours_default() -> int:
+    try:
+        return int(load_model_config().get("window_hours", 48))
+    except Exception:
+        return 48
+
+
+def _user_agent_for_source(source: dict[str, Any]) -> str:
+    mode = str(source.get("user_agent") or "honest").strip().lower()
+    if mode == "browser":
+        return BROWSER_USER_AGENT
+    return HONEST_USER_AGENT
+
+
+def _raw_published_utc(raw: dict[str, Any]) -> datetime | None:
+    for key in ("published_parsed", "updated_parsed"):
+        parsed = raw.get(key)
+        if parsed:
+            try:
+                return datetime(*parsed[:6], tzinfo=timezone.utc)
+            except (TypeError, ValueError, OverflowError):
+                continue
+    return None
+
+
+def _entry_in_window(
+    raw: dict[str, Any],
+    *,
+    window_hours: int,
+    now: datetime,
+) -> bool:
+    """True if published_at is within (now - window, now]. Missing/future → False."""
+    published = _raw_published_utc(raw)
+    if published is None:
+        return False
+    if published > now:
+        return False
+    return published >= now - timedelta(hours=window_hours)
+
+
 def fetch_source(
     source: dict[str, Any],
     *,
-    client: httpx.Client,
-) -> tuple[list[dict[str, Any]], SourceFetchError | None, str | None]:
+    client: httpx.Client | None = None,
+    timeout: float | None = None,
+    window_hours: int | None = None,
+    now: datetime | None = None,
+) -> tuple[list[dict[str, Any]], SourceFetchError | None, str | None, int]:
     """GET one feed URL and parse with feedparser.
 
-    Returns (raw_entries, error, http_status). On failure, raw_entries is empty
-    and error is set — callers should continue with other sources.
+    Returns (raw_entries_in_window, error, http_status, duration_ms).
+    Only entries inside the freshness window are returned (avoids normalizing
+    huge historical archives such as snyk_blog).
     """
     source_id = str(source.get("id", "unknown"))
     url = str(source.get("url", "")).strip()
+    started = time.perf_counter()
     if not url:
-        return [], SourceFetchError(source_id, url, "Source has no URL"), None
+        return (
+            [],
+            SourceFetchError(source_id, url, "Source has no URL"),
+            None,
+            0,
+        )
 
+    timeout_s = _fetch_timeout_seconds(timeout)
+    window = int(window_hours if window_hours is not None else _window_hours_default())
+    now_utc = now or datetime.now(timezone.utc)
+    if now_utc.tzinfo is None:
+        now_utc = now_utc.replace(tzinfo=timezone.utc)
+
+    headers = {
+        "User-Agent": _user_agent_for_source(source),
+        "Accept": ACCEPT_HEADERS,
+    }
+    owns_client = client is None
+    if owns_client:
+        client = httpx.Client(
+            timeout=timeout_s, headers=headers, follow_redirects=True
+        )
+
+    http_status: str | None = None
     try:
-        response = client.get(url)
+        assert client is not None
+        # Per-request timeout so a shared client cannot stretch beyond config.
+        response = client.get(url, headers=headers, timeout=timeout_s)
         http_status = str(response.status_code)
         response.raise_for_status()
     except httpx.TimeoutException:
+        ms = int((time.perf_counter() - started) * 1000)
         return (
             [],
             SourceFetchError(
                 source_id, url, f"Request timed out for {url}", http_status="timeout"
             ),
             "timeout",
+            ms,
         )
     except httpx.HTTPStatusError as exc:
         status = str(exc.response.status_code)
+        ms = int((time.perf_counter() - started) * 1000)
         return (
             [],
             SourceFetchError(
                 source_id, url, f"HTTP {status} for {url}", http_status=status
             ),
             status,
+            ms,
         )
     except httpx.HTTPError as exc:
+        ms = int((time.perf_counter() - started) * 1000)
         return (
             [],
             SourceFetchError(
@@ -125,12 +231,20 @@ def fetch_source(
                 http_status="network_error",
             ),
             "network_error",
+            ms,
         )
+    finally:
+        if owns_client and client is not None:
+            try:
+                client.close()
+            except Exception:
+                pass
 
     # Untrusted body — store/parse only; never execute or trust as instructions.
     content_type = (response.headers.get("content-type") or "").lower()
     body_prefix = response.content.lstrip()[:200].lower()
     if b"<!doctype html" in body_prefix or b"<html" in body_prefix:
+        ms = int((time.perf_counter() - started) * 1000)
         return (
             [],
             SourceFetchError(
@@ -141,6 +255,7 @@ def fetch_source(
                 http_status=http_status,
             ),
             http_status,
+            ms,
         )
 
     parsed = feedparser.parse(response.content)
@@ -149,21 +264,65 @@ def fetch_source(
         msg = f"Feed parse failed for {url}"
         if detail:
             msg = f"{msg}: {detail}"
+        ms = int((time.perf_counter() - started) * 1000)
         return (
             [],
             SourceFetchError(source_id, url, msg, http_status=http_status),
             http_status,
+            ms,
         )
 
+    competitor = source_competitor_tag(source)
     raw_entries: list[dict[str, Any]] = []
     for entry in parsed.entries:
-        # Attach provenance so normalize / dry-run can attribute items.
         item = dict(entry)
+        if not _entry_in_window(item, window_hours=window, now=now_utc):
+            continue
         item["_source_id"] = source_id
-        item["_competitor"] = source_competitor_tag(source)
+        item["_competitor"] = competitor
         item["_source_url"] = url
         raw_entries.append(item)
-    return raw_entries, None, http_status
+
+    ms = int((time.perf_counter() - started) * 1000)
+    return raw_entries, None, http_status, ms
+
+
+def _fetch_one_isolated(
+    source: dict[str, Any],
+    *,
+    timeout: float | None,
+    window_hours: int | None,
+) -> tuple[list[dict[str, Any]], SourceFetchError | None, SourceFetchStat]:
+    """Never raises — wraps fetch_source for the thread pool."""
+    source_id = str(source.get("id", "unknown"))
+    try:
+        entries, error, http_status, duration_ms = fetch_source(
+            source, timeout=timeout, window_hours=window_hours
+        )
+    except Exception as exc:  # noqa: BLE001
+        err = SourceFetchError(
+            source_id,
+            str(source.get("url", "")),
+            f"Unexpected error: {exc}",
+            http_status="exception",
+        )
+        stat = SourceFetchStat(
+            source_id=source_id,
+            http_status="exception",
+            fetched=0,
+            error=err.message,
+            duration_ms=None,
+        )
+        return [], err, stat
+
+    stat = SourceFetchStat(
+        source_id=source_id,
+        http_status=http_status or (error.http_status if error else None),
+        fetched=len(entries),
+        error=error.message if error else None,
+        duration_ms=duration_ms,
+    )
+    return entries, error, stat
 
 
 def fetch_all_sources(
@@ -171,30 +330,41 @@ def fetch_all_sources(
     *,
     timeout: float | None = None,
     user_agent: str = DEFAULT_USER_AGENT,
+    window_hours: int | None = None,
 ) -> FetchResult:
-    """Fetch every enabled source; never raise for individual feed failures."""
+    """Fetch every enabled source concurrently; never raise for individual failures.
+
+    ``user_agent`` is ignored for per-source selection (kept for API compatibility);
+    each source uses honest or browser UA from its YAML ``user_agent`` field.
+    """
+    del user_agent  # per-source UA from YAML
     sources = sources if sources is not None else enabled_sources()
     result = FetchResult()
-    timeout_s = _timeout_seconds(timeout)
-    headers = {
-        "User-Agent": user_agent,
-        "Accept": (
-            "application/rss+xml, application/atom+xml, "
-            "application/xml, text/xml, */*"
-        ),
-    }
+    if not sources:
+        return result
 
-    with httpx.Client(timeout=timeout_s, headers=headers, follow_redirects=True) as client:
-        for source in sources:
+    workers = min(_fetch_concurrency(), len(sources))
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = {
+            pool.submit(
+                _fetch_one_isolated,
+                source,
+                timeout=timeout,
+                window_hours=window_hours,
+            ): source
+            for source in sources
+        }
+        for fut in as_completed(futures):
+            source = futures[fut]
             source_id = str(source.get("id", "unknown"))
-            started = time.perf_counter()
             try:
-                entries, error, http_status = fetch_source(source, client=client)
-            except Exception as exc:  # noqa: BLE001 — isolate unexpected per-source crashes
-                url = str(source.get("url", ""))
-                duration_ms = int((time.perf_counter() - started) * 1000)
+                entries, error, stat = fut.result()
+            except Exception as exc:  # noqa: BLE001 — isolate pool failures
                 err = SourceFetchError(
-                    source_id, url, f"Unexpected error: {exc}", http_status="exception"
+                    source_id,
+                    str(source.get("url", "")),
+                    f"Worker failed: {exc}",
+                    http_status="exception",
                 )
                 result.errors.append(err)
                 result.source_stats.append(
@@ -203,23 +373,17 @@ def fetch_all_sources(
                         http_status="exception",
                         fetched=0,
                         error=err.message,
-                        duration_ms=duration_ms,
+                        duration_ms=None,
                     )
                 )
                 continue
-            duration_ms = int((time.perf_counter() - started) * 1000)
             if error:
                 result.errors.append(error)
             result.entries.extend(entries)
-            result.source_stats.append(
-                SourceFetchStat(
-                    source_id=source_id,
-                    http_status=http_status or (error.http_status if error else None),
-                    fetched=len(entries),
-                    error=error.message if error else None,
-                    duration_ms=duration_ms,
-                )
-            )
+            result.source_stats.append(stat)
+
+    # Stable order for telemetry readability.
+    result.source_stats.sort(key=lambda s: s.source_id)
     return result
 
 
@@ -228,9 +392,10 @@ def fetch_and_normalize(
     *,
     timeout: float | None = None,
     max_chars: int | None = None,
+    window_hours: int | None = None,
 ) -> NormalizedFetchResult:
-    """Fetch feeds and map usable entries into ``NormalizedEntry`` objects."""
-    raw = fetch_all_sources(sources, timeout=timeout)
+    """Fetch feeds and map in-window entries into ``NormalizedEntry`` objects."""
+    raw = fetch_all_sources(sources, timeout=timeout, window_hours=window_hours)
     limit = max_chars if max_chars is not None else _max_excerpt_chars()
     normalized: list[NormalizedEntry] = []
     for entry in raw.entries:
@@ -245,7 +410,6 @@ def fetch_and_normalize(
         if item is not None:
             normalized.append(item)
 
-    # Reconcile fetched counts to normalized entries (invalid rows dropped).
     by_source: dict[str, int] = {}
     for item in normalized:
         by_source[item.source_id] = by_source.get(item.source_id, 0) + 1

@@ -321,7 +321,11 @@ def run_daily(
     use_turso = turso_configured() and db_path is None
     path = None if use_turso else (Path(db_path) if db_path else DEFAULT_DB_PATH)
 
-    fetch_result = fetch_and_normalize()
+    # Fetch already drops out-of-window raw entries (important for huge archives).
+    fetch_result = fetch_and_normalize(
+        timeout=float(model_cfg.get("fetch_timeout_seconds", 15)),
+        window_hours=int(model_cfg["window_hours"]),
+    )
     items_fetched = len(fetch_result.entries)
     source_errors = len(fetch_result.errors)
 

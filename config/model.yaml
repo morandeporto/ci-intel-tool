@@ -10,6 +10,10 @@ max_per_source: 3
 # Wider than 24h so date-only midnight timestamps and one missed cron day are covered.
 window_hours: 48
 request_timeout_seconds: 60
+# Per-source HTTP timeout (seconds). One slow feed must not block the run.
+fetch_timeout_seconds: 15
+# Concurrent feed fetches (ThreadPoolExecutor workers).
+fetch_concurrency: 8
 max_excerpt_chars: 4000
 rate_limit_sleep_seconds: 1.0
 
