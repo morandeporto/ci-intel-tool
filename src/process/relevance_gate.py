@@ -2,7 +2,7 @@
 
 gate: "off"  - official_competitor / emerging: never keyword-filtered.
 gate: "strict" - industry / community: require ≥1 strong whole-word keyword.
-Weak keywords alone never pass. exclude_title_patterns apply to ALL sources.
+exclude_title_patterns apply to ALL sources.
 """
 
 from __future__ import annotations

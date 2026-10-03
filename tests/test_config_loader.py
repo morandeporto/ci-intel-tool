@@ -42,7 +42,7 @@ def test_relevance_config_lists() -> None:
     assert "CRA" in cfg["strong_keywords"]
     assert "supply-chain" in cfg["strong_keywords"]
     assert "MCP" in cfg["strong_keywords"]
-    assert "Docker" in cfg["weak_keywords"]
+    assert "weak_keywords" not in cfg
     assert "Scheduled Maintenance" in cfg["exclude_title_patterns"]
 
 

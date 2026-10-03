@@ -1,4 +1,4 @@
-"""Tests for per-source relevance gate (off vs strict, strong vs weak)."""
+"""Tests for per-source relevance gate (off vs strict)."""
 
 from __future__ import annotations
 
@@ -26,14 +26,6 @@ RELEVANCE = {
         "Snyk",
         "JFrog",
         "npm",
-    ],
-    "weak_keywords": [
-        "container",
-        "Docker",
-        "package",
-        "vulnerability",
-        "security",
-        "GitHub",
     ],
     "exclude_title_patterns": [
         "Planned Cloud Maintenance",
@@ -63,7 +55,7 @@ def test_strict_requires_strong_keyword() -> None:
     assert decision.strong_match_count >= 1
 
 
-def test_strict_weak_keywords_alone_never_pass() -> None:
+def test_strict_non_strong_terms_alone_never_pass() -> None:
     entry = _entry("Docker container security and vulnerability scanning")
     decision = evaluate_gate(entry, gate="strict", relevance_cfg=RELEVANCE)
     assert decision.passed is False

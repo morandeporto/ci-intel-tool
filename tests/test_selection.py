@@ -172,7 +172,6 @@ def test_select_for_llm_round_trip() -> None:
     }
     relevance = {
         "strong_keywords": ["SBOM"],
-        "weak_keywords": ["Docker"],
         "exclude_title_patterns": [],
     }
     result = select_for_llm(

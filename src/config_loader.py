@@ -75,8 +75,8 @@ def load_model_config(config_dir: Path | None = None) -> dict[str, Any]:
         data["pipeline_model"] = data["model_id"]
     if "model_id" not in data and "pipeline_model" in data:
         data["model_id"] = data["pipeline_model"]
+    # provider is optional / informational (SDK is Gemini-specific today).
     required = (
-        "provider",
         "model_id",
         "max_items_per_run",
         "max_per_source",
@@ -109,7 +109,7 @@ def load_relevance_config(config_dir: Path | None = None) -> dict[str, Any]:
     """Keyword gate lists and title exclude patterns from relevance.yaml."""
     base = config_dir or CONFIG_DIR
     data = _load_yaml(base / "relevance.yaml")
-    for key in ("strong_keywords", "weak_keywords", "exclude_title_patterns"):
+    for key in ("strong_keywords", "exclude_title_patterns"):
         if key not in data or not isinstance(data[key], list):
             raise ConfigError(f"relevance.yaml must contain a list for {key}")
     return data

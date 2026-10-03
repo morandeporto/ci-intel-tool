@@ -45,7 +45,6 @@ from src.process.llm_quota import (
 )
 from src.process.llm_rate_limit import configure_llm_interval
 from src.process.relevance_gate import evaluate_gate
-from src.process.rescore import select_fallbacks_for_rescore
 from src.process.scoring import weighted_score
 from src.process.selection import select_for_llm
 

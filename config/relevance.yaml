@@ -1,7 +1,6 @@
 # Keyword relevance gate for industry/community sources (gate: strict).
 # Official competitor and emerging sources use gate: off - never filtered by keywords.
 # Strong keywords: at least ONE whole-word match required to pass strict gate.
-# Weak keywords: never enough alone (used only for ranking signals later if needed).
 
 strong_keywords:
   - supply chain
@@ -39,18 +38,6 @@ strong_keywords:
   - MCP registry
   - token theft
   - leaked credentials
-
-weak_keywords:
-  - container
-  - Docker
-  - package
-  - vulnerability
-  - CI/CD
-  - DevSecOps
-  - registry
-  - security
-  - GitHub
-  - GitLab
 
 # Applied to ALL sources before gate/selection (title match, case-insensitive).
 exclude_title_patterns:

@@ -364,6 +364,7 @@ class Repository:
                    n.ingested_at, n.summary, n.category, n.raw_excerpt, n.content_hash,
                    n.relevance_score, n.run_id, n.status, n.filter_reason,
                    n.item_type, n.jfrog_implication, n.is_fallback,
+                   n.scored_by_model, n.rubric_version,
                    d.jfrog_relevance, d.competitor_signal, d.strategic_impact,
                    d.freshness, d.market_visibility, d.model_id, d.scored_at
             FROM news_items n
@@ -449,26 +450,6 @@ class Repository:
         return float(val) if val is not None else None
 
     # --- feedback ------------------------------------------------------
-    def add_feedback(
-        self,
-        news_item_id: str,
-        original_score: float,
-        vote: str,
-        rationale: str | None = None,
-    ) -> int:
-        if vote not in ("up", "down"):
-            raise ValueError("vote must be 'up' or 'down'")
-        cur = self.conn.execute(
-            """
-            INSERT INTO feedback (news_item_id, original_score, vote, rationale, created_at)
-            VALUES (?, ?, ?, ?, ?)
-            """,
-            (news_item_id, original_score, vote, rationale, _utc_now()),
-        )
-        self.conn.commit()
-        last_id = getattr(cur, "lastrowid", None)
-        return int(last_id) if last_id is not None else 0
-
     def upsert_feedback(
         self,
         news_item_id: str,
