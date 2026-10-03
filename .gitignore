@@ -61,9 +61,11 @@ local_settings.py
 db.sqlite3
 db.sqlite3-journal
 
-# Local runtime DB (seed.db is intentionally committed for offline demos)
+# Local runtime DB (no committed seed — empty state + Run Now)
 data/ci_intel.db
 data/ci_intel.db-journal
+data/seed.db
+data/seed.db-journal
 
 # Flask stuff:
 instance/

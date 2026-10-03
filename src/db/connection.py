@@ -18,7 +18,6 @@ from src.config_loader import DATA_DIR, DEFAULT_DB_PATH, PROJECT_ROOT
 load_dotenv(PROJECT_ROOT / ".env")
 
 SCHEMA_PATH = PROJECT_ROOT / "data" / "schema.sql"
-SEED_DB_PATH = DATA_DIR / "seed.db"
 
 
 def turso_configured() -> bool:
@@ -70,7 +69,7 @@ def db_label(db_path: Path | str | None = None) -> str:
 def get_connection(db_path: Path | str | None = None) -> Any:
     """Open a DB connection.
 
-    - Explicit ``db_path`` always uses local SQLite (tests / seed scripts).
+    - Explicit ``db_path`` always uses local SQLite (tests).
     - No path + Turso env configured → shared remote libSQL.
     - Otherwise local default path.
     """
@@ -214,19 +213,13 @@ def resolve_db_path(explicit: Path | str | None = None) -> Path:
     Precedence for local mode:
       1. explicit argument
       2. CI_INTEL_DB env var
-      3. data/ci_intel.db if it has news rows
-      4. data/seed.db if present (offline demo)
-      5. data/ci_intel.db (create on first write)
+      3. data/ci_intel.db (create on first write / empty-state UI)
     """
     if explicit is not None:
         return Path(explicit)
     env = os.environ.get("CI_INTEL_DB")
     if env:
         return Path(env)
-    if DEFAULT_DB_PATH.exists() and _news_count(DEFAULT_DB_PATH) > 0:
-        return DEFAULT_DB_PATH
-    if SEED_DB_PATH.exists() and _news_count(SEED_DB_PATH) > 0:
-        return SEED_DB_PATH
     return DEFAULT_DB_PATH
 
 

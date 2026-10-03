@@ -26,26 +26,22 @@ Get a key from [Google AI Studio](https://aistudio.google.com/apikey). Never com
 
 ---
 
-## Seed database + run the UI
-
-For a seamless offline demo (no network / no API key required for browsing):
+## Run the UI
 
 ```bash
-python scripts/seed_db.py
 streamlit run src/ui/app.py
 ```
 
-- `scripts/seed_db.py` rebuilds `data/seed.db` with several days of sample news, dimension scores, pipeline run history, and sample 👍/👎 feedback.
-- The UI opens `data/ci_intel.db` when it has news rows; otherwise it falls back to `data/seed.db` (`resolve_db_path` in `src/db/connection.py`).
-- Runtime DB `data/ci_intel.db` is gitignored; committed `data/seed.db` keeps demos working when the internet or a feed is down.
+The app uses **Turso** when `TURSO_DATABASE_URL` + `TURSO_AUTH_TOKEN` are set in `.env`; otherwise local `data/ci_intel.db`. There is **no seed/fake database** — an empty DB shows a friendly empty state with **Run Now**.
 
 ### UI tabs
 
 | Tab | What you get |
 |-----|----------------|
-| **Daily Digest** | Items sorted by relevance; weight sliders + **Save weights**; 👍/👎 + rationale; **Run Now**; pipeline run history |
-| **Ask the Digest** | Light RAG: top-k news from DB + curated comparison matrix → Gemini with citations; up to 2 session follow-ups |
-| **Comparison** | Curated capability matrix (`last_reviewed` shown) — every claim has a source link + quote, or **Unknown** |
+| **Daily Digest** | Items by date (Israel today default); weight sliders; min-relevance filter; item_type filter; 👍/👎; **Run Now** |
+| **Ask the Digest** | Light RAG: top-k news + curated comparison matrix → Gemini with citations; up to 2 session follow-ups |
+| **Comparison** | Curated capability matrix — every claim has a source link + quote, or **Unknown** |
+| **Pipeline runs** | Cron/manual run history plus per-source telemetry for the selected run |
 
 ### Optional shared database (Turso)
 
@@ -56,7 +52,7 @@ TURSO_DATABASE_URL=libsql://...
 TURSO_AUTH_TOKEN=...
 ```
 
-Then restart the app / pipeline. If those vars are unset (or still placeholders), the tool uses local SQLite (`data/ci_intel.db` / `data/seed.db`).
+Then restart the app / pipeline. If those vars are unset (or still placeholders), the tool uses local SQLite (`data/ci_intel.db`).
 
 **Production note:** For a real multi-user product we would choose managed **PostgreSQL** (see [DECISIONS.md](DECISIONS.md)). Turso is the take-home choice to share one SQLite-compatible DB with minimal rewrite.
 
@@ -132,7 +128,7 @@ config/*.yaml          competitors, sources, weights, model, comparison
                                              / feedback
 ```
 
-**Built now:** ingestion, dedupe, LLM dimension scoring, code-side weighted total, feedback table + UI buttons, curated comparison matrix, seed DB, GitHub Actions cron.
+**Built now:** ingestion, freshness window, relevance gate, balanced selection, LLM dimension scoring, code-side weighted total, feedback table + UI buttons, curated comparison matrix, GitHub Actions cron (Turso).
 
 **Service layer** (`src/services/`) is intentionally separate from Streamlit so a read-only MCP server can wrap the same functions later without rewriting business logic.
 
@@ -251,8 +247,8 @@ Critical logic covered: weighted relevance scoring (`tests/test_scoring.py`), de
 
 ```
 config/           competitors, sources, weights, model, comparison
-data/             schema.sql, seed.db (committed); ci_intel.db (gitignored)
-scripts/          seed_db.py, verify_feeds.py
+data/             schema.sql; ci_intel.db (gitignored, created at runtime)
+scripts/          verify_feeds.py, diagnose_fetch.py
 src/ingest/       RSS fetch + normalize
 src/process/      dedupe, LLM classify, scoring
 src/pipeline/     run_daily orchestrator
