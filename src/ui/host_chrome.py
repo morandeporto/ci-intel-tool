@@ -9,34 +9,63 @@ import streamlit as st
 # Injected into window.parent - not the Streamlit iframe stylesheet.
 PARENT_STYLES = """
 #ci-busy-bar, #ci-toast {
-  font-family: "Open Sans", sans-serif, box-sizing: border-box;
-  position: fixed, left: 50%, z-index: 2147483646, pointer-events: none;
+  font-family: "Open Sans", sans-serif;
+  box-sizing: border-box;
+  position: fixed;
+  left: 50%;
+  z-index: 2147483646;
+  pointer-events: none;
 }
 #ci-busy-bar {
-  bottom: 1.4rem, transform: translateX(-50%);
-  min-width: min(92vw, 440px), background: #0A0F21, color: #fff;
-  border: 1px solid rgba(64,190,70,.55), border-radius: 9999px;
-  padding: .9rem 1.25rem, display: flex, align-items: center, gap: .75rem;
-  box-shadow: 0 8px 28px rgba(0,0,0,.5), font-size: calc(1.05rem + 4px), font-weight: 600;
+  bottom: 1.4rem;
+  transform: translateX(-50%);
+  min-width: min(92vw, 440px);
+  background: #0A0F21;
+  color: #fff;
+  border: 1px solid rgba(64,190,70,.55);
+  border-radius: 9999px;
+  padding: .9rem 1.25rem;
+  display: flex;
+  align-items: center;
+  gap: .75rem;
+  box-shadow: 0 8px 28px rgba(0,0,0,.5);
+  font-size: calc(1.05rem + 4px);
+  font-weight: 600;
 }
 #ci-busy-bar .ci-spin {
-  width: 1.2rem, height: 1.2rem, border-radius: 50%;
-  border: 2px solid rgba(255,255,255,.25), border-top-color: #40BE46;
-  animation: ci-spin .7s linear infinite, flex-shrink: 0;
+  width: 1.2rem;
+  height: 1.2rem;
+  border-radius: 50%;
+  border: 2px solid rgba(255,255,255,.25);
+  border-top-color: #40BE46;
+  animation: ci-spin .7s linear infinite;
+  flex-shrink: 0;
 }
 #ci-toast {
-  bottom: 1.4rem, transform: translate(-50%, 14px);
-  min-width: min(92vw, 440px), max-width: 92vw, background: #14243D, color: #fff;
-  border-radius: 14px, padding: 1rem 1.25rem, border: 1px solid rgba(64,190,70,.5);
-  box-shadow: 0 10px 32px rgba(0,0,0,.55), font-size: calc(1.05rem + 4px), font-weight: 600;
-  opacity: 0, transition: opacity .2s ease, transform .2s ease, text-align: center;
+  bottom: 1.4rem;
+  transform: translate(-50%, 14px);
+  min-width: min(92vw, 440px);
+  max-width: 92vw;
+  background: #14243D;
+  color: #fff;
+  border-radius: 14px;
+  padding: 1rem 1.25rem;
+  border: 1px solid rgba(64,190,70,.5);
+  box-shadow: 0 10px 32px rgba(0,0,0,.55);
+  font-size: calc(1.05rem + 4px);
+  font-weight: 600;
+  opacity: 0;
+  transition: opacity .2s ease, transform .2s ease;
+  text-align: center;
 }
-#ci-toast.ci-show { opacity: 1, transform: translate(-50%, 0), }
-#ci-toast.ci-err { border-color: rgba(231,76,60,.7), }
+#ci-toast.ci-show { opacity: 1; transform: translate(-50%, 0); }
+#ci-toast.ci-err { border-color: rgba(231,76,60,.7); }
 @keyframes ci-spin { to { transform: rotate(360deg); } }
 button.ci-btn-run-now {
   background: linear-gradient(90deg, #1E4F7A 0%, #2F6F9E 100%) !important;
-  background-color: #21558A !important, border: none !important, color: #fff !important;
+  background-color: #21558A !important;
+  border: none !important;
+  color: #fff !important;
 }
 button.ci-btn-down-on {
   background: #E53935 !important;
@@ -63,6 +92,100 @@ def _parent_doc_expr() -> str:
     return "(window.parent && window.parent.document) ? window.parent.document : document"
 
 
+def _table_drag_scroll_js(doc_expr: str) -> str:
+    """Mouse/pointer drag-to-pan for wide tables (keeps touch + wheel scroll)."""
+    return f"""
+  (function installTableDragScroll() {{
+    var doc = {doc_expr};
+    var SELECTOR = [
+      '.ci-h-scroll',
+      '.ci-matrix',
+      '.ci-run-table',
+      '[data-testid="stDataFrame"]',
+      '[data-testid="stDataFrameResizable"]'
+    ].join(',');
+    var DRAG_THRESHOLD = 4;
+
+    function isInteractive(target) {{
+      return !!(target && target.closest &&
+        target.closest('a, button, input, label, select, textarea, [role="button"]'));
+    }}
+
+    function bindDragScroll(el) {{
+      if (!el || el.dataset.ciDragScroll === '1') return;
+      el.dataset.ciDragScroll = '1';
+      var dragging = false;
+      var moved = false;
+      var startX = 0;
+      var originScroll = 0;
+      var pointerId = null;
+
+      function endDrag(ev) {{
+        if (!dragging) return;
+        dragging = false;
+        el.classList.remove('ci-dragging');
+        if (pointerId !== null && el.releasePointerCapture) {{
+          try {{ el.releasePointerCapture(pointerId); }} catch (e) {{}}
+        }}
+        pointerId = null;
+        if (moved && ev && ev.preventDefault) ev.preventDefault();
+      }}
+
+      el.addEventListener('pointerdown', function (ev) {{
+        if (ev.pointerType === 'touch') return;
+        if (ev.button !== 0) return;
+        if (isInteractive(ev.target)) return;
+        if (el.scrollWidth <= el.clientWidth + 1) return;
+        dragging = true;
+        moved = false;
+        startX = ev.clientX;
+        originScroll = el.scrollLeft;
+        pointerId = ev.pointerId;
+        if (el.setPointerCapture) {{
+          try {{ el.setPointerCapture(pointerId); }} catch (e) {{}}
+        }}
+      }});
+
+      el.addEventListener('pointermove', function (ev) {{
+        if (!dragging) return;
+        var dx = ev.clientX - startX;
+        if (!moved && Math.abs(dx) < DRAG_THRESHOLD) return;
+        moved = true;
+        el.classList.add('ci-dragging');
+        el.scrollLeft = originScroll - dx;
+        ev.preventDefault();
+      }});
+
+      el.addEventListener('pointerup', endDrag);
+      el.addEventListener('pointercancel', endDrag);
+      el.addEventListener('lostpointercapture', endDrag);
+
+      el.addEventListener('click', function (ev) {{
+        if (!moved) return;
+        ev.preventDefault();
+        ev.stopPropagation();
+        moved = false;
+      }}, true);
+
+      el.addEventListener('dragstart', function (ev) {{
+        if (dragging || moved) ev.preventDefault();
+      }});
+    }}
+
+    function scan() {{
+      doc.querySelectorAll(SELECTOR).forEach(bindDragScroll);
+    }}
+
+    scan();
+    if (!doc.documentElement.dataset.ciDragScrollObs) {{
+      doc.documentElement.dataset.ciDragScrollObs = '1';
+      var obs = new MutationObserver(function () {{ scan(); }});
+      obs.observe(doc.body || doc.documentElement, {{ childList: true, subtree: true }});
+    }}
+  }})();
+"""
+
+
 def boot_host_chrome(*, flash: dict | None = None) -> None:
     """One iframe at end of page: parent CSS, compact padding, optional bottom toast."""
     css = json.dumps(PARENT_STYLES)
@@ -72,6 +195,7 @@ def boot_host_chrome(*, flash: dict | None = None) -> None:
             {"msg": str(flash.get("msg") or ""), "ok": bool(flash.get("ok", True))}
         )
     doc = _parent_doc_expr()
+    drag_js = _table_drag_scroll_js(doc)
     _run_parent_script(
         f"""
 (function() {{
@@ -99,7 +223,7 @@ def boot_host_chrome(*, flash: dict | None = None) -> None:
       var on = b.getAttribute('kind') === 'primary'
         || (b.getAttribute('data-testid') || '') === 'baseButton-primary';
       ['background', 'background-color', 'background-image', 'border', 'color', 'box-shadow']
-        .forEach(function (p) {{ b.style.removeProperty(p), }});
+        .forEach(function (p) {{ b.style.removeProperty(p); }});
       b.classList.remove('ci-btn-down-on');
       if (on) {{
         b.classList.add('ci-btn-down-on');
@@ -112,6 +236,8 @@ def boot_host_chrome(*, flash: dict | None = None) -> None:
     }}
   }});
 
+{drag_js}
+
   var flash = {flash_js};
   if (!flash) return;
   var busy = doc.getElementById('ci-busy-bar');
@@ -123,23 +249,40 @@ def boot_host_chrome(*, flash: dict | None = None) -> None:
   el.className = flash.ok ? '' : 'ci-err';
   el.textContent = flash.msg;
   doc.body.appendChild(el);
-  requestAnimationFrame(function () {{ el.classList.add('ci-show'), }});
+  requestAnimationFrame(function () {{ el.classList.add('ci-show'); }});
   setTimeout(function () {{
     el.classList.remove('ci-show');
-    setTimeout(function () {{ if (el.parentNode) el.remove(), }}, 250);
+    setTimeout(function () {{ if (el.parentNode) el.remove(); }}, 250);
   }}, 3400);
 }})();
 """
     )
 
 
+def _ensure_parent_styles_js(doc_expr: str) -> str:
+    """Re-apply host CSS (needed on pending runs that st.stop before boot_host_chrome)."""
+    css = json.dumps(PARENT_STYLES)
+    return f"""
+  var cssId = 'ci-host-ui-css';
+  var styleEl = {doc_expr}.getElementById(cssId);
+  if (!styleEl) {{
+    styleEl = {doc_expr}.createElement('style');
+    styleEl.id = cssId;
+    {doc_expr}.head.appendChild(styleEl);
+  }}
+  styleEl.textContent = {css};
+"""
+
+
 def show_busy_toast(message: str) -> None:
     msg = json.dumps(message)
     doc = _parent_doc_expr()
+    ensure_css = _ensure_parent_styles_js("doc")
     _run_parent_script(
         f"""
 (function() {{
   var doc = {doc};
+{ensure_css}
   var toast = doc.getElementById('ci-toast');
   if (toast) toast.remove();
   var el = doc.getElementById('ci-busy-bar');
@@ -173,13 +316,17 @@ def schedule_continue_click(delay_ms: int = 500) -> None:
     _run_parent_script(
         f"""
 (function() {{
-  var doc = {doc};
+  var docs = [];
+  try {{ docs.push({doc}); }} catch (e) {{}}
+  try {{ if (document && docs.indexOf(document) < 0) docs.push(document); }} catch (e) {{}}
   function clickContinue() {{
-    var buttons = doc.querySelectorAll('button');
-    for (var i = 0, i < buttons.length, i++) {{
-      if ((buttons[i].textContent || '').trim() === 'ci_continue') {{
-        buttons[i].click();
-        return true;
+    for (var d = 0; d < docs.length; d++) {{
+      var buttons = docs[d].querySelectorAll('button');
+      for (var i = 0; i < buttons.length; i++) {{
+        if ((buttons[i].textContent || '').trim() === 'ci_continue') {{
+          buttons[i].click();
+          return true;
+        }}
       }}
     }}
     return false;

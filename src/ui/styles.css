@@ -545,6 +545,33 @@ div[data-testid="stAlert"] {
 
 /* NO global bordered-container styling - frames were destroying the layout. */
 
+/* Horizontal scroll + mouse drag (JS adds .ci-dragging while panning) */
+.ci-h-scroll,
+.ci-matrix,
+.ci-run-table,
+div[data-testid="stDataFrame"] {
+  cursor: grab;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+  scrollbar-gutter: stable;
+  touch-action: pan-x pan-y;
+}
+.ci-h-scroll.ci-dragging,
+.ci-matrix.ci-dragging,
+.ci-run-table.ci-dragging,
+div[data-testid="stDataFrame"].ci-dragging {
+  cursor: grabbing;
+  user-select: none;
+}
+.ci-h-scroll.ci-dragging *,
+.ci-matrix.ci-dragging *,
+.ci-run-table.ci-dragging * {
+  cursor: grabbing !important;
+  user-select: none !important;
+  pointer-events: none;
+}
+
 .ci-matrix {
   width: 100%;
   border-collapse: separate;
@@ -637,8 +664,20 @@ div[data-testid="stHorizontalBlock"]:has(.ci-digest-controls-marker) {
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
 }
-.ci-run-table table {
+
+/* Streamlit dataframe: keep wide telemetry tables scrollable */
+div[data-testid="stDataFrame"] {
   width: 100%;
+  max-width: 100%;
+  margin-bottom: 1rem;
+}
+div[data-testid="stDataFrame"] [data-testid="stDataFrameResizable"] {
+  overflow-x: auto !important;
+  -webkit-overflow-scrolling: touch;
+}
+.ci-run-table table {
+  width: max-content;
+  min-width: 100%;
   table-layout: fixed;
   border-collapse: collapse;
 }
@@ -653,26 +692,29 @@ div[data-testid="stHorizontalBlock"]:has(.ci-digest-controls-marker) {
   font-weight: 700;
   font-size: 0.98rem;
 }
-.ci-run-table th:nth-child(1) { width: 14%; }
-.ci-run-table th:nth-child(2) { width: 8%; }
-.ci-run-table th:nth-child(3) { width: 9%; }
+/* 11 cols: Started, Trigger, Status, Fetched, New, OK, Fallback, Retries, Scored, Warn, Error */
+.ci-run-table th:nth-child(1) { width: 11.5rem; }
+.ci-run-table th:nth-child(2) { width: 5.5rem; }
+.ci-run-table th:nth-child(3) { width: 6.5rem; }
 .ci-run-table th:nth-child(4),
 .ci-run-table th:nth-child(5),
 .ci-run-table th:nth-child(6),
 .ci-run-table th:nth-child(7),
 .ci-run-table th:nth-child(8),
-.ci-run-table th:nth-child(9) { width: 7%; }
-.ci-run-table th:nth-child(10),
+.ci-run-table th:nth-child(9),
+.ci-run-table th:nth-child(10) { width: 5rem; }
+.ci-run-table th:nth-child(11),
 .ci-run-table td.ci-run-err {
-  width: 20%;
-  max-width: 200px;
+  width: 22rem;
+  max-width: 22rem;
   white-space: nowrap;
-  overflow: visible;
+  overflow: hidden;
   vertical-align: middle;
 }
 .ci-run-table td.ci-run-err > .ci-err-short,
 .ci-run-table td.ci-run-err > .ci-err-trigger {
-  max-width: 200px;
+  display: block;
+  max-width: 100%;
 }
 .ci-err-short {
   display: inline-block;

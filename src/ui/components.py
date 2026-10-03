@@ -270,7 +270,7 @@ def render_comparison_matrix(
         )
 
     return f"""
-    <div class="ci-matrix ci-desktop-table">
+    <div class="ci-matrix ci-h-scroll ci-desktop-table">
       <table>
         <thead><tr><th>Capability</th>{header_cells}</tr></thead>
         <tbody>{"".join(body_parts)}</tbody>
@@ -282,7 +282,7 @@ def render_comparison_matrix(
     """
 
 
-_ERR_PREVIEW_CHARS = 42
+_ERR_PREVIEW_CHARS = 64
 
 
 def _render_error_popup(raw: str | None, uid: str) -> tuple[str, str]:
@@ -389,7 +389,7 @@ def render_run_history(runs: list[dict[str, Any]]) -> str:
             f"</article>"
         )
     return f"""
-    <div class="ci-run-table ci-desktop-table">
+    <div class="ci-run-table ci-h-scroll ci-desktop-table">
       <table>
         <thead>
           <tr>
