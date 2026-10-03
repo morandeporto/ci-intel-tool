@@ -6,6 +6,7 @@ the whole run. Content is treated as untrusted text (no LLM in this module).
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -30,6 +31,18 @@ class SourceFetchError:
     source_id: str
     url: str
     message: str
+    http_status: str | None = None
+
+
+@dataclass
+class SourceFetchStat:
+    """Per-source fetch telemetry (filled further by the pipeline)."""
+
+    source_id: str
+    http_status: str | None = None
+    fetched: int = 0
+    error: str | None = None
+    duration_ms: int | None = None
 
 
 @dataclass
@@ -38,12 +51,14 @@ class FetchResult:
 
     entries: list[dict[str, Any]] = field(default_factory=list)
     errors: list[SourceFetchError] = field(default_factory=list)
+    source_stats: list[SourceFetchStat] = field(default_factory=list)
 
 
 @dataclass
 class NormalizedFetchResult:
     entries: list[NormalizedEntry] = field(default_factory=list)
     errors: list[SourceFetchError] = field(default_factory=list)
+    source_stats: list[SourceFetchStat] = field(default_factory=list)
 
 
 def _timeout_seconds(timeout: float | None) -> float:
@@ -68,37 +83,64 @@ def fetch_source(
     source: dict[str, Any],
     *,
     client: httpx.Client,
-) -> tuple[list[dict[str, Any]], SourceFetchError | None]:
+) -> tuple[list[dict[str, Any]], SourceFetchError | None, str | None]:
     """GET one feed URL and parse with feedparser.
 
-    Returns (raw_entries, error). On failure, raw_entries is empty and error
-    is set — callers should continue with other sources.
+    Returns (raw_entries, error, http_status). On failure, raw_entries is empty
+    and error is set — callers should continue with other sources.
     """
     source_id = str(source.get("id", "unknown"))
     url = str(source.get("url", "")).strip()
     if not url:
-        return [], SourceFetchError(source_id, url, "Source has no URL")
+        return [], SourceFetchError(source_id, url, "Source has no URL"), None
 
     try:
         response = client.get(url)
+        http_status = str(response.status_code)
         response.raise_for_status()
     except httpx.TimeoutException:
-        return [], SourceFetchError(source_id, url, f"Request timed out for {url}")
+        return (
+            [],
+            SourceFetchError(
+                source_id, url, f"Request timed out for {url}", http_status="timeout"
+            ),
+            "timeout",
+        )
     except httpx.HTTPStatusError as exc:
-        status = exc.response.status_code
-        return [], SourceFetchError(source_id, url, f"HTTP {status} for {url}")
+        status = str(exc.response.status_code)
+        return (
+            [],
+            SourceFetchError(
+                source_id, url, f"HTTP {status} for {url}", http_status=status
+            ),
+            status,
+        )
     except httpx.HTTPError as exc:
-        return [], SourceFetchError(source_id, url, f"Network error for {url}: {exc}")
+        return (
+            [],
+            SourceFetchError(
+                source_id,
+                url,
+                f"Network error for {url}: {exc}",
+                http_status="network_error",
+            ),
+            "network_error",
+        )
 
     # Untrusted body — store/parse only; never execute or trust as instructions.
     content_type = (response.headers.get("content-type") or "").lower()
     body_prefix = response.content.lstrip()[:200].lower()
     if b"<!doctype html" in body_prefix or b"<html" in body_prefix:
-        return [], SourceFetchError(
-            source_id,
-            url,
-            f"Expected RSS/Atom but got HTML (possible bot challenge) for {url} "
-            f"[content-type={content_type or 'unknown'}]",
+        return (
+            [],
+            SourceFetchError(
+                source_id,
+                url,
+                f"Expected RSS/Atom but got HTML (possible bot challenge) for {url} "
+                f"[content-type={content_type or 'unknown'}]",
+                http_status=http_status,
+            ),
+            http_status,
         )
 
     parsed = feedparser.parse(response.content)
@@ -107,7 +149,11 @@ def fetch_source(
         msg = f"Feed parse failed for {url}"
         if detail:
             msg = f"{msg}: {detail}"
-        return [], SourceFetchError(source_id, url, msg)
+        return (
+            [],
+            SourceFetchError(source_id, url, msg, http_status=http_status),
+            http_status,
+        )
 
     raw_entries: list[dict[str, Any]] = []
     for entry in parsed.entries:
@@ -117,7 +163,7 @@ def fetch_source(
         item["_competitor"] = source_competitor_tag(source)
         item["_source_url"] = url
         raw_entries.append(item)
-    return raw_entries, None
+    return raw_entries, None, http_status
 
 
 def fetch_all_sources(
@@ -130,22 +176,50 @@ def fetch_all_sources(
     sources = sources if sources is not None else enabled_sources()
     result = FetchResult()
     timeout_s = _timeout_seconds(timeout)
-    headers = {"User-Agent": user_agent, "Accept": "application/rss+xml, application/atom+xml, application/xml, text/xml, */*"}
+    headers = {
+        "User-Agent": user_agent,
+        "Accept": (
+            "application/rss+xml, application/atom+xml, "
+            "application/xml, text/xml, */*"
+        ),
+    }
 
     with httpx.Client(timeout=timeout_s, headers=headers, follow_redirects=True) as client:
         for source in sources:
+            source_id = str(source.get("id", "unknown"))
+            started = time.perf_counter()
             try:
-                entries, error = fetch_source(source, client=client)
+                entries, error, http_status = fetch_source(source, client=client)
             except Exception as exc:  # noqa: BLE001 — isolate unexpected per-source crashes
-                source_id = str(source.get("id", "unknown"))
                 url = str(source.get("url", ""))
-                result.errors.append(
-                    SourceFetchError(source_id, url, f"Unexpected error: {exc}")
+                duration_ms = int((time.perf_counter() - started) * 1000)
+                err = SourceFetchError(
+                    source_id, url, f"Unexpected error: {exc}", http_status="exception"
+                )
+                result.errors.append(err)
+                result.source_stats.append(
+                    SourceFetchStat(
+                        source_id=source_id,
+                        http_status="exception",
+                        fetched=0,
+                        error=err.message,
+                        duration_ms=duration_ms,
+                    )
                 )
                 continue
+            duration_ms = int((time.perf_counter() - started) * 1000)
             if error:
                 result.errors.append(error)
             result.entries.extend(entries)
+            result.source_stats.append(
+                SourceFetchStat(
+                    source_id=source_id,
+                    http_status=http_status or (error.http_status if error else None),
+                    fetched=len(entries),
+                    error=error.message if error else None,
+                    duration_ms=duration_ms,
+                )
+            )
     return result
 
 
@@ -170,7 +244,27 @@ def fetch_and_normalize(
         )
         if item is not None:
             normalized.append(item)
-    return NormalizedFetchResult(entries=normalized, errors=list(raw.errors))
+
+    # Reconcile fetched counts to normalized entries (invalid rows dropped).
+    by_source: dict[str, int] = {}
+    for item in normalized:
+        by_source[item.source_id] = by_source.get(item.source_id, 0) + 1
+    stats = [
+        SourceFetchStat(
+            source_id=stat.source_id,
+            http_status=stat.http_status,
+            fetched=0 if stat.error else by_source.get(stat.source_id, 0),
+            error=stat.error,
+            duration_ms=stat.duration_ms,
+        )
+        for stat in raw.source_stats
+    ]
+
+    return NormalizedFetchResult(
+        entries=normalized,
+        errors=list(raw.errors),
+        source_stats=stats,
+    )
 
 
 def _dry_run(sample: int = 5, timeout: float | None = None) -> int:

@@ -1,5 +1,6 @@
-# Daily competitive-intelligence ingestion.
-# Requires repository secret GEMINI_API_KEY (Settings → Secrets → Actions).
+# Daily competitive-intelligence ingestion → Turso (shared demo DB).
+# Requires repository secrets:
+#   GEMINI_API_KEY, TURSO_DATABASE_URL, TURSO_AUTH_TOKEN
 
 name: Daily CI Intel Ingest
 
@@ -27,16 +28,46 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
+      - name: Verify Turso secrets
+        env:
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+        run: |
+          if [ -z "$TURSO_DATABASE_URL" ] || [ -z "$TURSO_AUTH_TOKEN" ]; then
+            echo "TURSO_DATABASE_URL and TURSO_AUTH_TOKEN must be set as repository secrets."
+            exit 1
+          fi
+
+      - name: Ping Turso
+        env:
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+        run: |
+          python - <<'PY'
+          from src.db.connection import get_connection, init_db, turso_configured
+          if not turso_configured():
+              raise SystemExit("Turso is not configured (check secrets / placeholders).")
+          init_db()
+          conn = get_connection()
+          try:
+              conn.execute("SELECT 1")
+              print("Turso reachable.")
+          finally:
+              conn.close()
+          PY
+
       - name: Run daily pipeline
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
         run: python -m src.pipeline.run_daily --trigger cron
 
-      - name: Upload SQLite artifact
+      - name: Upload local SQLite artifact (debug only)
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ci-intel-db-${{ github.run_id }}
+          name: ci-intel-db-debug-${{ github.run_id }}
           path: data/ci_intel.db
-          if-no-files-found: warn
-          retention-days: 14
+          if-no-files-found: ignore
+          retention-days: 7

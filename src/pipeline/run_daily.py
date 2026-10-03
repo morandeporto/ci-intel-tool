@@ -29,7 +29,7 @@ from src.db.connection import get_connection, init_db, turso_configured
 from src.db.models import DimensionScores, NewsItem
 from src.db.repository import Repository
 from src.ingest.normalize import NormalizedEntry
-from src.ingest.rss_fetcher import fetch_and_normalize
+from src.ingest.rss_fetcher import SourceFetchStat, fetch_and_normalize
 from src.process.dedupe import is_duplicate
 from src.process.freshness import filter_by_freshness
 from src.process.llm_classify import (
@@ -123,8 +123,9 @@ def _apply_freshness_gate_select(
     list[NormalizedEntry],
     list[tuple[NormalizedEntry, str]],
     list[NormalizedEntry],
+    list[NormalizedEntry],
 ]:
-    """Return (selected_for_llm, filtered_with_reason, cap_skipped)."""
+    """Return (selected, filtered_with_reason, cap_skipped, in_window)."""
     window_hours = int(model_cfg["window_hours"])
     max_per_source = int(model_cfg["max_per_source"])
     reserved = dict(model_cfg["selection"]["reserved_slots"])
@@ -153,7 +154,71 @@ def _apply_freshness_gate_select(
         reserved_slots=reserved,
         relevance_cfg=relevance_cfg,
     )
-    return selection.selected, filtered, selection.cap_skipped
+    return selection.selected, filtered, selection.cap_skipped, in_window
+
+
+def _count_by_source(entries: list[NormalizedEntry]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for entry in entries:
+        counts[entry.source_id] = counts.get(entry.source_id, 0) + 1
+    return counts
+
+
+def _build_source_run_stat_rows(
+    *,
+    run_id: str,
+    fetch_stats: list[SourceFetchStat],
+    new_entries: list[NormalizedEntry],
+    in_window: list[NormalizedEntry],
+    filtered: list[tuple[NormalizedEntry, str]],
+    selected: list[NormalizedEntry],
+    classified_by_source: dict[str, int],
+) -> list[dict[str, Any]]:
+    new_c = _count_by_source(new_entries)
+    window_c = _count_by_source(in_window)
+    filtered_urls = {e.url for e, _ in filtered}
+    passed_entries = [e for e in in_window if e.url not in filtered_urls]
+    passed_c = _count_by_source(passed_entries)
+    selected_c = _count_by_source(selected)
+
+    rows: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for stat in fetch_stats:
+        sid = stat.source_id
+        seen.add(sid)
+        rows.append(
+            {
+                "run_id": run_id,
+                "source_id": sid,
+                "http_status": stat.http_status,
+                "fetched": stat.fetched,
+                "in_window": window_c.get(sid, 0),
+                "new": new_c.get(sid, 0),
+                "passed_gate": passed_c.get(sid, 0),
+                "selected": selected_c.get(sid, 0),
+                "classified": classified_by_source.get(sid, 0),
+                "error": stat.error,
+                "duration_ms": stat.duration_ms,
+            }
+        )
+    # Sources that only appear in new_entries (should be rare).
+    for sid in sorted(set(new_c) | set(selected_c) - seen):
+        rows.append(
+            {
+                "run_id": run_id,
+                "source_id": sid,
+                "http_status": None,
+                "fetched": 0,
+                "in_window": window_c.get(sid, 0),
+                "new": new_c.get(sid, 0),
+                "passed_gate": passed_c.get(sid, 0),
+                "selected": selected_c.get(sid, 0),
+                "classified": classified_by_source.get(sid, 0),
+                "error": None,
+                "duration_ms": None,
+            }
+        )
+    return rows
 
 
 def _persist_filtered(
@@ -297,7 +362,7 @@ def run_daily(
             run_id = repo.start_run(trigger)
 
             new_entries = _filter_entries_to_process(repo, fetch_result.entries)
-            selected, filtered, _cap_skipped = _apply_freshness_gate_select(
+            selected, filtered, _cap_skipped, in_window = _apply_freshness_gate_select(
                 new_entries,
                 model_cfg=model_cfg,
                 relevance_cfg=relevance_cfg,
@@ -313,6 +378,7 @@ def run_daily(
                     items_failed += 1
                     classify_errors.append(f"{entry.url}: filter persist failed: {exc}")
 
+            classified_by_source: dict[str, int] = {}
             for entry in selected:
                 kind = str((source_meta.get(entry.source_id) or {}).get("kind") or "")
                 result, used_fallback, err = classify_entry_with_fallback(
@@ -332,6 +398,9 @@ def run_daily(
                         is_fallback=used_fallback,
                     )
                     items_scored += 1
+                    classified_by_source[entry.source_id] = (
+                        classified_by_source.get(entry.source_id, 0) + 1
+                    )
                     if used_fallback:
                         items_fallback += 1
                         if err:
@@ -340,6 +409,21 @@ def run_daily(
                     items_failed += 1
                     classify_errors.append(f"{entry.url}: persist failed: {exc}")
                     continue
+
+            try:
+                repo.save_source_run_stats(
+                    _build_source_run_stat_rows(
+                        run_id=run_id,
+                        fetch_stats=list(fetch_result.source_stats),
+                        new_entries=new_entries,
+                        in_window=in_window,
+                        filtered=filtered,
+                        selected=selected,
+                        classified_by_source=classified_by_source,
+                    )
+                )
+            except Exception as exc:  # noqa: BLE001 — telemetry must not kill the run
+                logger.warning("Failed to persist source_run_stats: %s", exc)
 
             status = _resolve_status(
                 items_fetched=items_fetched,
@@ -351,7 +435,21 @@ def run_daily(
                 attempted=len(selected),
             )
             error_message = None
-            if items_failed and classify_errors:
+            if (
+                len(selected) > 0
+                and items_fallback >= len(selected)
+                and items_fallback > 0
+            ):
+                error_message = (
+                    f"Model call failed for every selected item "
+                    f"({items_fallback}/{len(selected)} fallback)"
+                    + (
+                        f"; first: {classify_errors[0][:160]}"
+                        if classify_errors
+                        else ""
+                    )
+                )
+            elif items_failed and classify_errors:
                 error_message = (
                     f"{items_failed} item(s) failed to persist "
                     f"(first: {classify_errors[0][:200]})"
@@ -470,7 +568,7 @@ def _run_dry(
                 fetch_result_entries, existing_urls, existing_hashes
             )
 
-        selected, filtered, cap_skipped = _apply_freshness_gate_select(
+        selected, filtered, cap_skipped, _in_window = _apply_freshness_gate_select(
             new_entries,
             model_cfg=model_cfg,
             relevance_cfg=relevance_cfg,
@@ -549,10 +647,10 @@ def _resolve_status(
         return "success"
     if items_scored == 0 and items_failed > 0:
         return "failed"
-    # Fallback-only scoring is still a successful ingest for demo purposes.
-    if items_scored > 0 and items_failed == 0 and items_fallback > 0:
-        return "success"
-    if items_failed > 0 or source_errors > 0:
+    # Every model call failed → hard failure (no silent success for cron/GHA).
+    if attempted > 0 and items_fallback >= attempted and items_fallback > 0:
+        return "failed"
+    if items_failed > 0 or source_errors > 0 or items_fallback > 0:
         return "partial"
     return "success"
 

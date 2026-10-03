@@ -142,6 +142,49 @@ class Repository:
         )
         return _row_as_dict(cur, cur.fetchone())
 
+    def save_source_run_stats(self, rows: list[dict[str, Any]]) -> None:
+        """Persist per-source telemetry for one pipeline run."""
+        if not rows:
+            return
+        self.conn.executemany(
+            """
+            INSERT INTO source_run_stats (
+                run_id, source_id, http_status, fetched, in_window, new,
+                passed_gate, selected, classified, error, duration_ms
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    r["run_id"],
+                    r["source_id"],
+                    r.get("http_status"),
+                    int(r.get("fetched") or 0),
+                    int(r.get("in_window") or 0),
+                    int(r.get("new") or 0),
+                    int(r.get("passed_gate") or 0),
+                    int(r.get("selected") or 0),
+                    int(r.get("classified") or 0),
+                    r.get("error"),
+                    r.get("duration_ms"),
+                )
+                for r in rows
+            ],
+        )
+        self.conn.commit()
+
+    def list_source_run_stats(self, run_id: str) -> list[dict[str, Any]]:
+        cur = self.conn.execute(
+            """
+            SELECT run_id, source_id, http_status, fetched, in_window, new,
+                   passed_gate, selected, classified, error, duration_ms
+            FROM source_run_stats
+            WHERE run_id = ?
+            ORDER BY source_id
+            """,
+            (run_id,),
+        )
+        return _rows_as_dicts(cur)
+
     # --- news + scores -------------------------------------------------
     def existing_urls(self) -> set[str]:
         cur = self.conn.execute("SELECT url FROM news_items")

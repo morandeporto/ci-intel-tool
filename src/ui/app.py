@@ -31,6 +31,7 @@ from src.services.feedback import get_latest_feedback
 from src.services.weights import get_effective_weights
 from src.ui.components import (
     competitor_labels,
+    format_israel_time,
     load_styles,
     render_banner,
     render_comparison_matrix,
@@ -656,7 +657,53 @@ def _render_comparison_tab() -> None:
 def _render_runs_tab(repo: Repository) -> None:
     st.markdown('<div class="ci-section-title">Pipeline run history</div>', unsafe_allow_html=True)
     st.caption("Cron and manual ingestion runs. Times shown in Israel timezone.")
-    st.markdown(render_run_history(repo.list_runs(limit=30)), unsafe_allow_html=True)
+    runs = repo.list_runs(limit=30)
+    st.markdown(render_run_history(runs), unsafe_allow_html=True)
+
+    if not runs:
+        return
+
+    st.markdown(
+        '<div class="ci-section-title">Per-source telemetry</div>',
+        unsafe_allow_html=True,
+    )
+    st.caption("One row per source for the selected run — diagnose fetch/gate/selection failures.")
+    labels = {
+        r["id"]: (
+            f"{format_israel_time(r.get('started_at'))} · {r.get('trigger')} · "
+            f"{r.get('status')} · scored={r.get('items_scored')}"
+        )
+        for r in runs
+    }
+    selected_run = st.selectbox(
+        "Pipeline run",
+        options=list(labels.keys()),
+        format_func=lambda rid: labels.get(rid, rid),
+        key="pipeline_run_stats_select",
+    )
+    stats = repo.list_source_run_stats(str(selected_run))
+    if not stats:
+        st.info("No per-source stats for this run (older runs before telemetry).")
+        return
+    st.dataframe(
+        [
+            {
+                "source_id": s.get("source_id"),
+                "http": s.get("http_status"),
+                "fetched": s.get("fetched"),
+                "in_window": s.get("in_window"),
+                "new": s.get("new"),
+                "passed_gate": s.get("passed_gate"),
+                "selected": s.get("selected"),
+                "classified": s.get("classified"),
+                "duration_ms": s.get("duration_ms"),
+                "error": s.get("error") or "",
+            }
+            for s in stats
+        ],
+        use_container_width=True,
+        hide_index=True,
+    )
 
 
 def main() -> None:
