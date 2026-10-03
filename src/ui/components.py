@@ -155,9 +155,11 @@ def render_news_card(item: dict[str, Any]) -> str:
     implication = item.get("jfrog_implication") or ""
     is_fallback = bool(item.get("is_fallback"))
     score = item.get("relevance_score")
-    published = format_israel_time(
-        item.get("published_at") or item.get("ingested_at")
-    )
+    # Card label = article publish time (not the digest filter's ingest day).
+    published_label = format_israel_time(item.get("published_at"))
+    if published_label == "—":
+        published_label = format_israel_time(item.get("ingested_at"))
+    published = f"Published: {published_label}"
 
     dims = item.get("dimensions") or {}
     dim_html = ""

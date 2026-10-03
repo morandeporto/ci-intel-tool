@@ -33,10 +33,12 @@ def israel_today() -> date:
 
 
 def item_news_date(row: dict[str, Any]) -> date | None:
-    """Digest calendar day in Israel TZ: ingest time (when it entered our DB).
+    """Digest filter day = ingestion calendar day in Asia/Jerusalem.
 
-    Falls back to published_at only if ingested_at is missing — matches the
-    Daily Digest "Creation date" sort, so "today" shows what was ingested today.
+    Converts the stored UTC ``ingested_at`` to Israel local time before taking
+    the date (so a late-UTC ingest can land on the next Israel day). Falls back
+    to ``published_at`` only when ingest time is missing. The news card still
+    shows the article's published timestamp as a separate label.
     """
     raw = row.get("ingested_at") or row.get("published_at")
     if not raw:

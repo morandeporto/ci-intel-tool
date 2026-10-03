@@ -63,3 +63,21 @@ def test_filter_digest_by_single_day_default_today() -> None:
 def test_filter_empty_selection_returns_empty() -> None:
     items = [{"id": "a", "ingested_at": "2026-01-01T12:00:00Z"}]
     assert filter_digest_by_news_dates(items, []) == []
+
+
+def test_item_news_date_uses_israel_day_boundary() -> None:
+    """UTC timestamps convert to Asia/Jerusalem before the calendar day is taken.
+
+    In January Israel is UTC+2: 21:30 UTC is still Jan 10 locally, but 22:30 UTC
+    is already Jan 11 00:30 Israel.
+    """
+    before = {
+        "ingested_at": "2026-01-10T21:30:00+00:00",
+        "published_at": "2020-01-01T00:00:00+00:00",
+    }
+    after = {
+        "ingested_at": "2026-01-10T22:30:00+00:00",
+        "published_at": "2020-01-01T00:00:00+00:00",
+    }
+    assert item_news_date(before) == date(2026, 1, 10)
+    assert item_news_date(after) == date(2026, 1, 11)

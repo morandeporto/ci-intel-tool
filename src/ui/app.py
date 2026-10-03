@@ -296,7 +296,7 @@ def _news_date_bounds(all_items: list) -> tuple[date, date]:
     """Calendar range that always allows picking days other than today.
 
     Streamlit locks ``date_input`` when min_value == max_value; keep a lookback
-    window even when every item shares the same article calendar day.
+    window even when every item was ingested on the same Israel calendar day.
     """
     today = israel_today()
     days = [d for item in all_items if (d := item_news_date(item)) is not None]
@@ -351,7 +351,7 @@ def _render_news_date_filter(all_items: list) -> tuple[list, str | None]:
         min_value=min_day,
         max_value=max_day,
         on_change=_on_digest_news_date_change,
-        help="Show items whose card date (published time, Israel timezone) matches this day. Default: today.",
+        help="Show items ingested on this calendar day (Israel timezone). Default: today.",
         label_visibility="collapsed",
         format="DD/MM/YYYY",
     )
