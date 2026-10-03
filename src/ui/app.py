@@ -296,7 +296,7 @@ def _news_date_bounds(all_items: list) -> tuple[date, date]:
     """Calendar range that always allows picking days other than today.
 
     Streamlit locks ``date_input`` when min_value == max_value; keep a lookback
-    window even when every item was ingested on the same day.
+    window even when every item shares the same article calendar day.
     """
     today = israel_today()
     days = [d for item in all_items if (d := item_news_date(item)) is not None]
@@ -351,7 +351,7 @@ def _render_news_date_filter(all_items: list) -> tuple[list, str | None]:
         min_value=min_day,
         max_value=max_day,
         on_change=_on_digest_news_date_change,
-        help="Show items ingested on this calendar day (Israel timezone). Default: today.",
+        help="Show items whose card date (published time, Israel timezone) matches this day. Default: today.",
         label_visibility="collapsed",
         format="DD/MM/YYYY",
     )
@@ -507,12 +507,12 @@ def _render_digest_tab(repo: Repository, db_path: Path | None) -> None:
             "Minimum relevance",
             min_value=0.0,
             max_value=5.0,
-            value=2.5,
+            value=2.0,
             step=0.1,
             key="digest_min_relevance",
             help=(
-                "Hide items below this score. Fallback / Not scored items are "
-                "hidden by default when the minimum is above 0."
+                "Hide items below this score. Unscored / pending items are "
+                "hidden by default — use Show unscored to reveal them."
             ),
             on_change=_on_digest_news_date_change,
         )
@@ -520,11 +520,38 @@ def _render_digest_tab(repo: Repository, db_path: Path | None) -> None:
     if selected_type != "All types":
         items = [i for i in items if (i.get("item_type") or "") == selected_type]
 
-    # Default min 2.5 hides low scores and fallback (no score) from the view.
+    def _is_unscored(item: dict) -> bool:
+        status = str(item.get("status") or "")
+        return bool(item.get("is_fallback")) or status in (
+            "pending_scoring",
+            "scoring",
+        ) or item.get("relevance_score") is None
+
+    waiting = [i for i in items if _is_unscored(i)]
+    waiting_n = len(waiting)
+    if waiting_n:
+        show_col, banner_col = st.columns([1, 3])
+        with show_col:
+            show_unscored = st.toggle(
+                "Show unscored",
+                value=False,
+                key="digest_show_unscored",
+                help="Reveal fallback and pending_scoring items hidden by default.",
+            )
+        with banner_col:
+            st.markdown(
+                f'<div class="ci-banner-muted">{waiting_n} item'
+                f'{"s" if waiting_n != 1 else ""} waiting for scoring</div>',
+                unsafe_allow_html=True,
+            )
+    else:
+        show_unscored = False
+
+    # Hide unscored by default; apply minimum relevance to scored items.
     visible: list = []
     for item in items:
-        if item.get("is_fallback") or item.get("relevance_score") is None:
-            if min_relevance <= 0:
+        if _is_unscored(item):
+            if show_unscored:
                 visible.append(item)
             continue
         if float(item["relevance_score"]) >= float(min_relevance):
@@ -536,7 +563,8 @@ def _render_digest_tab(repo: Repository, db_path: Path | None) -> None:
     if not items:
         st.info(
             "No news for this filter. "
-            "Try another date, lower Minimum relevance, or run ingestion."
+            "Try another date, lower Minimum relevance, enable Show unscored, "
+            "or run ingestion."
         )
         return
 

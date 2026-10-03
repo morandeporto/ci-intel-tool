@@ -306,6 +306,13 @@ div[data-testid="column"] div.stButton > button {
   line-height: 1.45;
 }
 
+.ci-banner-muted {
+  color: var(--ci-text-secondary, #8C9FA4);
+  font-size: 0.95rem;
+  padding: 0.55rem 0.25rem 0;
+  line-height: 1.4;
+}
+
 .ci-kpi {
   background: linear-gradient(145deg, var(--ci-glass-a), var(--ci-glass-b));
   border: 1px solid var(--ci-border);

@@ -37,7 +37,6 @@ from src.process.llm_classify import (
     LlmUsageGuard,
     chunk_entries,
     classify_entries_batch_with_fallback,
-    classify_entry_with_fallback,
 )
 from src.process.llm_quota import (
     DailyQuotaError,
