@@ -12,7 +12,6 @@ from __future__ import annotations
 import argparse
 import logging
 import sys
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -35,9 +34,15 @@ from src.process.dedupe import is_duplicate
 from src.process.freshness import filter_by_freshness
 from src.process.llm_classify import (
     ClassificationResult,
+    LlmUsageGuard,
     chunk_entries,
     classify_entries_batch_with_fallback,
     classify_entry_with_fallback,
+)
+from src.process.llm_quota import (
+    DailyQuotaError,
+    model_min_interval_seconds,
+    resolve_pipeline_model,
 )
 from src.process.llm_rate_limit import configure_llm_interval
 from src.process.relevance_gate import evaluate_gate
@@ -287,8 +292,11 @@ def rescore_fallback_items(
     source_meta: dict[str, dict[str, Any]],
     within_days: int | None = None,
     limit: int | None = None,
+    model_id_override: str | None = None,
+    usage_guard: LlmUsageGuard | None = None,
+    use_fallback_model: bool = False,
 ) -> RescoreStats:
-    """Re-classify stored is_fallback rows (newest first, capped)."""
+    """Re-classify stored is_fallback / pending_scoring rows (newest first, capped)."""
     days = int(
         within_days
         if within_days is not None
@@ -297,73 +305,182 @@ def rescore_fallback_items(
     cap = int(
         limit if limit is not None else model_cfg.get("rescore_fallback_limit", 40)
     )
-    candidates = select_fallbacks_for_rescore(
-        repo.list_fallback_items(),
+    timeout_min = int(model_cfg.get("scoring_claim_timeout_minutes", 30))
+    repo.release_stale_scoring_claims(older_than_minutes=timeout_min)
+
+    # Prefer pending_scoring + fallbacks (shared selection helper).
+    from src.process.rescore import select_items_for_rescore
+
+    candidates = select_items_for_rescore(
+        repo.list_pending_or_fallback_items(),
         within_days=days,
         limit=cap,
     )
-    stats = RescoreStats(attempted=len(candidates))
+    stats = RescoreStats(attempted=0)
     if not candidates:
         return stats
 
-    configure_llm_interval(float(model_cfg.get("llm_min_interval_seconds", 0.5)))
-    llm_workers = max(1, int(model_cfg.get("llm_concurrency", 3)))
-    model_id = str(model_cfg["model_id"])
+    model_id = model_id_override or resolve_pipeline_model(
+        model_cfg, use_fallback=use_fallback_model
+    )
+    configure_llm_interval(model_min_interval_seconds(model_cfg, model_id))
+    guard = usage_guard or LlmUsageGuard(
+        repo, model_cfg, purpose="rescore", model_id=model_id
+    )
+    batch_size = max(1, int(model_cfg.get("batch_size", 5)))
+    source_kinds = {
+        sid: str(meta.get("kind") or "") for sid, meta in source_meta.items()
+    }
 
-    def _one(row: dict[str, Any]) -> tuple[dict[str, Any], ClassificationResult, bool, str | None, int]:
-        entry = _row_to_normalized_entry(row)
-        kind = str((source_meta.get(entry.source_id) or {}).get("kind") or "")
-        result, used_fallback, err, retries = classify_entry_with_fallback(
-            entry, model_config=model_cfg, source_kind=kind
+    # Claim atomically before classifying — skip rows another worker already took.
+    claimed: list[dict[str, Any]] = []
+    for row in candidates:
+        news_id = str(row["id"])
+        is_pending = str(row.get("status") or "") == "pending_scoring"
+        ok = (
+            repo.claim_item_for_scoring(news_id)
+            if is_pending
+            else repo.claim_fallback_item_for_scoring(news_id)
         )
-        return row, result, used_fallback, err, retries
-
-    outcomes: list[
-        tuple[dict[str, Any], ClassificationResult, bool, str | None, int]
-    ] = []
-    with ThreadPoolExecutor(max_workers=min(llm_workers, len(candidates))) as pool:
-        futures = [pool.submit(_one, row) for row in candidates]
-        for fut in as_completed(futures):
-            try:
-                outcomes.append(fut.result())
-            except Exception as exc:  # noqa: BLE001
-                stats.errors.append(f"rescore worker failed: {exc}")
+        if ok:
+            claimed.append(row)
+    stats.attempted = len(claimed)
+    if not claimed:
+        return stats
 
     now = _utc_now()
-    for row, result, used_fallback, err, retries in outcomes:
-        stats.retries_used += int(retries)
-        news_id = str(row["id"])
+    for batch_rows in [
+        claimed[i : i + batch_size] for i in range(0, len(claimed), batch_size)
+    ]:
+        entries = [_row_to_normalized_entry(r) for r in batch_rows]
+        item_ids = [str(r["id"]) for r in batch_rows]
         try:
-            if used_fallback:
-                stats.still_fallback += 1
-                if err:
-                    stats.errors.append(f"{row.get('url')}: {err}")
-                # Leave is_fallback=1; do not overwrite with another placeholder.
-                continue
-            score = weighted_score(result.dimension_dict(), weights)
-            dims = DimensionScores(
-                jfrog_relevance=result.jfrog_relevance,
-                competitor_signal=result.competitor_signal,
-                strategic_impact=result.strategic_impact,
-                freshness=result.freshness,
-                market_visibility=result.market_visibility,
-                model_id=model_id,
-                scored_at=now,
+            outcomes = classify_entries_batch_with_fallback(
+                entries,
+                model_config=model_cfg,
+                source_kinds=source_kinds,
+                item_ids=item_ids,
+                usage_guard=guard,
+                model_id_override=model_id,
             )
-            repo.apply_classification_to_item(
-                news_id,
-                summary=result.summary,
-                category=result.category,
-                item_type=result.item_type,
-                jfrog_implication=result.jfrog_implication,
-                relevance_score=score,
-                is_fallback=False,
-                scores=dims,
-            )
-            stats.ok += 1
+        except DailyQuotaError as exc:
+            # Release claimed-but-unscored rows back to pending; do not fail the job.
+            for row in batch_rows:
+                try:
+                    repo.conn.execute(
+                        """
+                        UPDATE news_items
+                        SET status = 'pending_scoring',
+                            filter_reason = 'daily_quota',
+                            is_fallback = 0
+                        WHERE id = ? AND status = 'scoring'
+                        """,
+                        (row["id"],),
+                    )
+                    repo.conn.commit()
+                except Exception:  # noqa: BLE001
+                    pass
+            stats.errors.append(f"daily quota during rescore: {exc}")
+            break
         except Exception as exc:  # noqa: BLE001
-            stats.errors.append(f"{row.get('url')}: rescore persist failed: {exc}")
+            stats.errors.append(f"rescore batch failed: {exc}")
+            continue
+
+        for row, (_entry, result, used_fallback, err, retries) in zip(
+            batch_rows, outcomes, strict=True
+        ):
+            stats.retries_used += int(retries)
+            news_id = str(row["id"])
+            try:
+                if used_fallback:
+                    stats.still_fallback += 1
+                    if err:
+                        stats.errors.append(f"{row.get('url')}: {err}")
+                    was_pending = str(row.get("status") or "") in (
+                        "pending_scoring",
+                        "scoring",
+                    )
+                    if was_pending:
+                        # Keep awaiting a later night / run — not a mid-score fallback.
+                        repo.conn.execute(
+                            """
+                            UPDATE news_items
+                            SET status = 'pending_scoring',
+                                filter_reason = ?,
+                                is_fallback = 0
+                            WHERE id = ?
+                            """,
+                            (err or "rescore_failed", news_id),
+                        )
+                        repo.conn.commit()
+                    else:
+                        # Original fallback row — leave is_fallback=1 placeholders.
+                        repo.conn.execute(
+                            """
+                            UPDATE news_items
+                            SET status = 'classified', filter_reason = NULL
+                            WHERE id = ? AND status = 'scoring'
+                            """,
+                            (news_id,),
+                        )
+                        repo.conn.commit()
+                    continue
+                score = weighted_score(result.dimension_dict(), weights)
+                dims = DimensionScores(
+                    jfrog_relevance=result.jfrog_relevance,
+                    competitor_signal=result.competitor_signal,
+                    strategic_impact=result.strategic_impact,
+                    freshness=result.freshness,
+                    market_visibility=result.market_visibility,
+                    model_id=model_id,
+                    scored_at=now,
+                )
+                repo.apply_classification_to_item(
+                    news_id,
+                    summary=result.summary,
+                    category=result.category,
+                    item_type=result.item_type,
+                    jfrog_implication=result.jfrog_implication,
+                    relevance_score=score,
+                    is_fallback=False,
+                    scores=dims,
+                )
+                stats.ok += 1
+            except Exception as exc:  # noqa: BLE001
+                stats.errors.append(f"{row.get('url')}: rescore persist failed: {exc}")
     return stats
+
+
+def _persist_pending_scoring(
+    repo: Repository,
+    entry: NormalizedEntry,
+    *,
+    run_id: str,
+) -> None:
+    """Store an item that could not be scored due to daily quota (not a fallback)."""
+    news_id = str(uuid4())
+    now = _utc_now()
+    item = NewsItem(
+        id=news_id,
+        title=entry.title,
+        url=entry.url,
+        source_id=entry.source_id,
+        competitor=entry.competitor,
+        published_at=entry.published_at,
+        ingested_at=now,
+        summary=None,
+        category=None,
+        raw_excerpt=entry.raw_excerpt,
+        content_hash=entry.content_hash,
+        relevance_score=None,
+        run_id=run_id,
+        status="pending_scoring",
+        filter_reason="daily_quota",
+        item_type=None,
+        jfrog_implication=None,
+        is_fallback=False,
+    )
+    repo.upsert_news_item(item)
 
 
 def _persist_classified(
@@ -418,8 +535,9 @@ def run_rescore_only(
     db_path: Path | str | None = None,
     within_days: int | None = None,
     limit: int | None = None,
+    use_fallback_model: bool = False,
 ) -> PipelineResult:
-    """CLI path: rescore stored fallbacks without fetching feeds."""
+    """CLI path: rescore stored fallbacks / pending_scoring without fetching feeds."""
     model_cfg = load_model_config()
     weights = load_weights()
     source_meta = _source_meta_by_id()
@@ -434,6 +552,11 @@ def run_rescore_only(
     def _connect():
         return get_connection() if use_turso else get_connection(path)
 
+    try:
+        active_model = resolve_pipeline_model(model_cfg, use_fallback=use_fallback_model)
+    except ValueError as exc:
+        return PipelineResult(status="failed", run_id=None, message=str(exc))
+
     conn = _connect()
     try:
         repo = Repository(conn)
@@ -445,6 +568,8 @@ def run_rescore_only(
             source_meta=source_meta,
             within_days=within_days,
             limit=limit,
+            model_id_override=active_model,
+            use_fallback_model=use_fallback_model,
         )
         status = _resolve_status(
             items_fetched=0,
@@ -496,6 +621,7 @@ def run_daily(
     dry_run: bool = False,
     window_hours: int | None = None,
     skip_auto_rescore: bool = False,
+    use_fallback_model: bool = False,
 ) -> PipelineResult:
     """Execute one daily ingestion + classification cycle.
 
@@ -504,6 +630,7 @@ def run_daily(
     limit: when set, raises/sets the selection cap for this run (not clamped down).
     After a live run, automatically rescores recent fallbacks (last N days) unless
     ``skip_auto_rescore`` is set.
+    use_fallback_model: run the whole job on config fallback_model (one-off backfill).
     """
     model_cfg = load_model_config()
     if window_hours is not None:
@@ -511,7 +638,17 @@ def run_daily(
     max_per_run = int(model_cfg["max_items_per_run"])
     # WHY: backfill passes --limit to raise the cap; daily runs use model.yaml default.
     effective_limit = max_per_run if limit is None else max(1, int(limit))
-    model_id = str(model_cfg["model_id"])
+    try:
+        model_id = resolve_pipeline_model(model_cfg, use_fallback=use_fallback_model)
+    except ValueError as exc:
+        return PipelineResult(
+            status="failed",
+            run_id=None,
+            message=str(exc),
+        )
+    # When --use-fallback-model, treat fallback as the only active model for this run.
+    active_is_fallback_flag = bool(use_fallback_model)
+    fallback_model = str(model_cfg.get("fallback_model") or "").strip()
     relevance_cfg = load_relevance_config()
     source_meta = _source_meta_by_id()
     use_turso = turso_configured() and db_path is None
@@ -581,22 +718,77 @@ def run_daily(
                     classify_errors.append(f"{entry.url}: filter persist failed: {exc}")
 
             classified_by_source: dict[str, int] = {}
-            configure_llm_interval(float(model_cfg.get("llm_min_interval_seconds", 0.5)))
             batch_size = max(1, int(model_cfg.get("batch_size", 5)))
             source_kinds = {
                 sid: str(meta.get("kind") or "")
                 for sid, meta in source_meta.items()
             }
+            active_model = model_id
+            configure_llm_interval(model_min_interval_seconds(model_cfg, active_model))
+            usage_guard = LlmUsageGuard(
+                repo, model_cfg, purpose="pipeline", model_id=active_model
+            )
+            items_pending_scoring = 0
+            daily_quota_hit = False
+            quota_reason = "daily quota"
 
             # Batched classification (one Gemini call per chunk). Missing/invalid
             # ids are retried individually inside classify_entries_batch_with_fallback.
-            for batch in chunk_entries(selected, batch_size):
+            remaining_batches = chunk_entries(selected, batch_size)
+            batch_idx = 0
+            while batch_idx < len(remaining_batches):
+                batch = remaining_batches[batch_idx]
+                batch_idx += 1
                 try:
                     batch_outcomes = classify_entries_batch_with_fallback(
                         batch,
                         model_config=model_cfg,
                         source_kinds=source_kinds,
+                        usage_guard=usage_guard,
+                        model_id_override=active_model,
                     )
+                except DailyQuotaError as exc:
+                    # Prefer switching to fallback_model once if configured and not already on it.
+                    if (
+                        not active_is_fallback_flag
+                        and fallback_model
+                        and active_model != fallback_model
+                    ):
+                        logger.warning(
+                            "Primary model %s hit daily quota (%s); switching to fallback_model=%s",
+                            active_model,
+                            exc.retry_hint or "no hint",
+                            fallback_model,
+                        )
+                        active_model = fallback_model
+                        active_is_fallback_flag = True
+                        configure_llm_interval(
+                            model_min_interval_seconds(model_cfg, active_model)
+                        )
+                        usage_guard = LlmUsageGuard(
+                            repo, model_cfg, purpose="pipeline", model_id=active_model
+                        )
+                        # Retry this same batch on the fallback model.
+                        batch_idx -= 1
+                        continue
+                    daily_quota_hit = True
+                    hint = exc.retry_hint
+                    if hint:
+                        logger.warning("Daily quota retry hint: %s", hint)
+                    # Current batch + all not-yet-processed batches → pending_scoring.
+                    pending_entries = list(batch)
+                    for later in remaining_batches[batch_idx:]:
+                        pending_entries.extend(later)
+                    for entry in pending_entries:
+                        try:
+                            _persist_pending_scoring(repo, entry, run_id=run_id)
+                            items_pending_scoring += 1
+                        except Exception as persist_exc:  # noqa: BLE001
+                            items_failed += 1
+                            classify_errors.append(
+                                f"{entry.url}: pending persist failed: {persist_exc}"
+                            )
+                    break
                 except Exception as exc:  # noqa: BLE001
                     items_failed += len(batch)
                     classify_errors.append(f"classify batch failed: {exc}")
@@ -604,7 +796,7 @@ def run_daily(
 
                 for entry, result, used_fallback, err, retries_used in batch_outcomes:
                     persist_model_id = (
-                        f"{model_id}:fallback" if used_fallback else model_id
+                        f"{active_model}:fallback" if used_fallback else active_model
                     )
                     try:
                         _persist_classified(
@@ -656,8 +848,15 @@ def run_daily(
                 source_errors=source_errors,
                 attempted=len(selected),
             )
+            if daily_quota_hit:
+                status = "degraded"
             error_message = None
-            if (
+            if daily_quota_hit:
+                error_message = (
+                    f"{quota_reason}: {items_pending_scoring} item(s) left "
+                    f"pending_scoring (not fallback); model={active_model}"
+                )
+            elif (
                 len(selected) > 0
                 and items_fallback >= len(selected)
                 and items_fallback > 0
@@ -695,13 +894,16 @@ def run_daily(
 
             rescored_ok = 0
             rescored_fallback = 0
-            if not skip_auto_rescore:
+            if not skip_auto_rescore and not daily_quota_hit:
                 # Heal recent fallbacks from temporary model outages (incl. this run).
+                # Skipped on daily-quota stop so we do not burn/loop the exhausted model.
                 rescore_stats = rescore_fallback_items(
                     repo,
                     model_cfg=model_cfg,
                     weights=weights,
                     source_meta=source_meta,
+                    model_id_override=active_model,
+                    usage_guard=usage_guard,
                 )
                 rescored_ok = rescore_stats.ok
                 rescored_fallback = rescore_stats.still_fallback
@@ -712,6 +914,8 @@ def run_daily(
                         f"ok={rescore_stats.ok} still_fallback={rescore_stats.still_fallback}."
                     )
                     error_message = (error_message or "Pipeline completed.") + heal_note
+            elif daily_quota_hit:
+                error_message = (error_message or "") + " Auto-rescore skipped (daily quota)."
 
             repo.finish_run(
                 run_id,
@@ -945,7 +1149,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--rescore-fallbacks",
         action="store_true",
-        help="Re-classify stored is_fallback items (newest first) instead of ingesting.",
+        help="Re-classify stored is_fallback / pending_scoring items instead of ingesting.",
+    )
+    parser.add_argument(
+        "--use-fallback-model",
+        action="store_true",
+        help="Run the whole job on config fallback_model (for backfill when primary quota is small).",
     )
     return parser
 
@@ -953,7 +1162,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = build_arg_parser().parse_args(argv)
     if args.rescore_fallbacks:
-        result = run_rescore_only(db_path=args.db, limit=args.limit)
+        result = run_rescore_only(
+            db_path=args.db,
+            limit=args.limit,
+            use_fallback_model=args.use_fallback_model,
+        )
         print(
             f"status={result.status} rescored_ok={result.items_rescored_ok} "
             f"still_fallback={result.items_rescored_fallback} "
@@ -976,6 +1189,7 @@ def main(argv: list[str] | None = None) -> int:
         limit=args.limit,
         dry_run=args.dry_run,
         window_hours=window_hours,
+        use_fallback_model=args.use_fallback_model,
     )
     print(
         f"status={result.status} fetched={result.items_fetched} "

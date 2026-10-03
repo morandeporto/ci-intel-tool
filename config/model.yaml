@@ -1,9 +1,31 @@
-# LLM provider settings. Swap model_id (and API key in .env) to change providers.
-# Provider/model must never be hardcoded in application logic.
+# LLM provider settings. Swap pipeline_model / ask_model (and API key in .env)
+# to change models. Provider/model must never be hardcoded in application logic.
 # gemini-2.0-flash was retired by Google; gemini-3.8-flash is the current free-tier default.
+# Single API key only: GEMINI_API_KEY (no separate Ask key).
 
 provider: gemini
+# Primary pipeline classifier (also aliased as model_id for backward compatibility).
+pipeline_model: gemini-3.8-flash
 model_id: gemini-3.8-flash
+# Optional second model when the primary hits its daily PerDay quota (fill in after list-models).
+fallback_model: ""
+# Ask the Digest model (fill in after list-models; falls back to pipeline_model if empty).
+ask_model: ""
+
+# Soft per-model daily call budgets (llm_usage). Hard stop still comes from API PerDay errors.
+# Primary free-tier generate quota is typically 20/day — keep headroom for Ask / Run Now.
+model_daily_limits:
+  gemini-3.8-flash: 20
+  # Add flash-lite (or other) ids here only after confirming via list-models — never guess.
+
+# Calendar day boundary for llm_usage counters.
+quota_day_timezone: UTC
+
+# Per-model minimum delay between Gemini calls (respect RPM).
+# Primary free tier ~5 RPM → 12s; Flash Lite ~15 RPM → 4s (set when model id is confirmed).
+model_min_interval_seconds:
+  gemini-3.8-flash: 12.0
+
 max_items_per_run: 20
 max_per_source: 3
 # Freshness window: only consider items published within this many hours.
@@ -18,18 +40,20 @@ max_excerpt_chars: 4000
 # Items per Gemini classify call (JSON array keyed by item id).
 batch_size: 5
 rate_limit_sleep_seconds: 1.0
-# LLM reliability: retry transient 503/429/timeouts (not other 4xx).
+# LLM reliability: retry transient 503/429/timeouts (not other 4xx / not PerDay quota).
 llm_max_attempts: 3
 llm_retry_base_seconds: 1.0
 llm_retry_max_seconds: 20.0
 # Cap concurrent Gemini calls; keep burst small.
 # With batching, prefer sequential batches (concurrency 1) unless raised.
 llm_concurrency: 1
-# Minimum spacing between Gemini calls across workers (seconds).
+# Global fallback spacing when a model is missing from model_min_interval_seconds.
 llm_min_interval_seconds: 0.5
-# Auto-heal fallbacks from the last N days at end of each run / --rescore-fallbacks.
+# Auto-heal fallbacks / pending_scoring from the last N days at end of each run.
 rescore_fallback_days: 3
 rescore_fallback_limit: 40
+# Claim timeout: items stuck in status=scoring longer than this return to pending_scoring.
+scoring_claim_timeout_minutes: 30
 
 # Reserved minimum slots by source kind when selecting items for the LLM.
 # Unused slots flow to other kinds. industry + community share one combined pool.

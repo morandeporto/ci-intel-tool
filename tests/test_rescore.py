@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from src.process.rescore import select_fallbacks_for_rescore
+from src.process.rescore import select_fallbacks_for_rescore, select_items_for_rescore
 
 
 NOW = datetime(2026, 10, 3, 12, 0, 0, tzinfo=timezone.utc)
@@ -64,3 +64,25 @@ def test_rejects_invalid_window_or_limit() -> None:
         select_fallbacks_for_rescore([], within_days=0, limit=1)
     with pytest.raises(ValueError):
         select_fallbacks_for_rescore([], within_days=1, limit=0)
+
+
+def test_select_items_includes_pending_and_fallback() -> None:
+    rows = [
+        {**_row("fb", hours_ago=2), "status": "classified"},
+        {
+            "id": "pend",
+            "ingested_at": (NOW - timedelta(hours=1)).isoformat(),
+            "is_fallback": False,
+            "status": "pending_scoring",
+            "title": "pend",
+        },
+        {
+            "id": "old_pend",
+            "ingested_at": (NOW - timedelta(days=5)).isoformat(),
+            "is_fallback": False,
+            "status": "pending_scoring",
+            "title": "old",
+        },
+    ]
+    selected = select_items_for_rescore(rows, within_days=3, limit=10, now=NOW)
+    assert [r["id"] for r in selected] == ["pend", "fb"]

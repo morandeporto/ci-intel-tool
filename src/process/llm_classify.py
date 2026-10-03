@@ -19,8 +19,18 @@ from pydantic import BaseModel, ValidationError, field_validator
 from src.config_loader import PROJECT_ROOT, load_model_config
 from src.db.models import DIMENSION_NAMES
 from src.ingest.normalize import NormalizedEntry
+from src.process.llm_quota import (
+    DailyQuotaError,
+    extract_retry_hint,
+    is_daily_quota_error,
+    model_daily_limit,
+    model_min_interval_seconds,
+    quota_day_key,
+    raise_if_daily_quota,
+    resolve_pipeline_model,
+)
 from src.process.llm_rate_limit import wait_llm_interval
-from src.process.retry import call_with_retries
+from src.process.retry import call_with_retries, is_transient_error
 
 # Load .env from project root (explicit path avoids fragile cwd / stdin lookups).
 # Secrets stay out of code; only the key name is referenced here.
@@ -50,6 +60,47 @@ FALLBACK_IMPLICATION = "Not analyzed (model unavailable)"
 
 class ClassifyError(Exception):
     """Raised when classification cannot produce a validated result."""
+
+
+class LlmUsageGuard:
+    """Soft per-model daily budget + call counter (optional; tests may omit)."""
+
+    def __init__(
+        self,
+        repo: Any,
+        cfg: dict[str, Any],
+        *,
+        purpose: str,
+        model_id: str,
+    ) -> None:
+        self.repo = repo
+        self.cfg = cfg
+        self.purpose = purpose
+        self.model_id = model_id
+        self.tz_name = str(cfg.get("quota_day_timezone") or "UTC")
+
+    def day_key(self) -> str:
+        return quota_day_key(tz_name=self.tz_name)
+
+    def check_soft_budget(self) -> None:
+        limit = model_daily_limit(self.cfg, self.model_id)
+        if limit is None:
+            return
+        used = int(self.repo.get_llm_usage_calls(date_utc=self.day_key(), model=self.model_id))
+        if used >= limit:
+            raise DailyQuotaError(
+                f"Soft daily budget exhausted for {self.model_id}: {used}/{limit}",
+                model_id=self.model_id,
+                soft_budget=True,
+            )
+
+    def record_call(self, calls: int = 1) -> None:
+        self.repo.increment_llm_usage(
+            date_utc=self.day_key(),
+            purpose=self.purpose,
+            model=self.model_id,
+            calls=calls,
+        )
 
 
 class ClassificationResult(BaseModel):
@@ -491,6 +542,7 @@ def _gemini_generate(
     except ClassifyError:
         raise
     except Exception as exc:  # noqa: BLE001 — surface provider errors cleanly
+        raise_if_daily_quota(exc, model_id=model_id)
         raise ClassifyError(f"Gemini API call failed ({model_id}): {exc}") from exc
 
     try:
@@ -503,26 +555,52 @@ def _gemini_generate(
     return text
 
 
+def _reraise_quota_or_classify(exc: BaseException, *, model_id: str) -> None:
+    """Convert daily-quota / exhausted-429 into DailyQuotaError; else ClassifyError."""
+    if isinstance(exc, DailyQuotaError):
+        raise exc
+    raise_if_daily_quota(exc, model_id=model_id)
+    # Exhausted retries on transient 429 → stop as quota (avoid loops).
+    msg = str(exc)
+    if "429" in msg and is_transient_error(exc):
+        hint = extract_retry_hint(exc)
+        raise DailyQuotaError(
+            f"Repeated 429s after retries for model {model_id}: {exc}",
+            model_id=model_id,
+            retry_hint=hint,
+            soft_budget=False,
+        ) from exc
+    if isinstance(exc, ClassifyError):
+        raise exc
+    raise ClassifyError(f"Gemini API call failed ({model_id}): {exc}") from exc
+
+
 def classify_entry(
     entry: NormalizedEntry,
     *,
     model_config: dict[str, Any] | None = None,
     api_key: str | None = None,
+    usage_guard: LlmUsageGuard | None = None,
+    model_id_override: str | None = None,
 ) -> tuple[ClassificationResult, int]:
     """Call Gemini with structured JSON output for one news item.
 
     Retries transient 503/429/timeouts (config: llm_max_attempts).
+    Daily PerDay quota errors are not retried (DailyQuotaError).
     Returns ``(result, retries_used)``.
     model_id is read ONLY from config/model.yaml (never hardcoded).
     """
     cfg = model_config if model_config is not None else load_model_config()
-    model_id = str(cfg.get("pipeline_model") or cfg["model_id"])
+    model_id = model_id_override or resolve_pipeline_model(cfg)
     max_excerpt = int(cfg.get("max_excerpt_chars", 4000))
     timeout_seconds = float(cfg.get("request_timeout_seconds", 60))
     sleep_seconds = float(cfg.get("rate_limit_sleep_seconds", 1.0))
     max_attempts = int(cfg.get("llm_max_attempts", 3))
     base_seconds = float(cfg.get("llm_retry_base_seconds", 1.0))
     max_retry_seconds = float(cfg.get("llm_retry_max_seconds", 20.0))
+
+    if usage_guard is not None:
+        usage_guard.check_soft_budget()
 
     key = api_key if api_key is not None else _require_api_key()
     today_utc = datetime.now(timezone.utc).date().isoformat()
@@ -533,13 +611,19 @@ def classify_entry(
     def _once() -> str:
         # Shared spacing across concurrent workers before each attempt.
         wait_llm_interval()
-        return _gemini_generate(
-            key=key,
-            model_id=model_id,
-            prompt=prompt,
-            timeout_seconds=timeout_seconds,
-            temperature=0.2,
-        )
+        try:
+            return _gemini_generate(
+                key=key,
+                model_id=model_id,
+                prompt=prompt,
+                timeout_seconds=timeout_seconds,
+                temperature=0.2,
+            )
+        except DailyQuotaError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            raise_if_daily_quota(exc, model_id=model_id)
+            raise
 
     try:
         text, retries_used = call_with_retries(
@@ -548,10 +632,14 @@ def classify_entry(
             base_seconds=base_seconds,
             max_seconds=max_retry_seconds,
         )
-    except ClassifyError:
+    except DailyQuotaError:
         raise
     except Exception as exc:  # noqa: BLE001
-        raise ClassifyError(f"Gemini API call failed ({model_id}): {exc}") from exc
+        _reraise_quota_or_classify(exc, model_id=model_id)
+        raise  # pragma: no cover
+
+    if usage_guard is not None:
+        usage_guard.record_call(1)
 
     # Cost/rate guardrail: sleep after each successful item (concurrency step may
     # also space workers; this keeps sequential callers polite).
@@ -583,17 +671,27 @@ def classify_entry_with_fallback(
     model_config: dict[str, Any] | None = None,
     api_key: str | None = None,
     source_kind: str | None = None,
+    usage_guard: LlmUsageGuard | None = None,
+    model_id_override: str | None = None,
 ) -> tuple[ClassificationResult, bool, str | None, int]:
-    """Classify via Gemini; on any ClassifyError return mid-score fallback.
+    """Classify via Gemini; on ClassifyError return mid-score fallback.
+
+    DailyQuotaError propagates — callers must mark items pending_scoring, not fallback.
 
     Returns:
         (result, used_fallback, error_message_or_None, retries_used)
     """
     try:
         result, retries_used = classify_entry(
-            entry, model_config=model_config, api_key=api_key
+            entry,
+            model_config=model_config,
+            api_key=api_key,
+            usage_guard=usage_guard,
+            model_id_override=model_id_override,
         )
         return result, False, None, retries_used
+    except DailyQuotaError:
+        raise
     except ClassifyError as exc:
         retries_used = int(getattr(exc, "retries_used", 0) or 0)
         return (
@@ -603,6 +701,8 @@ def classify_entry_with_fallback(
             retries_used,
         )
     except Exception as exc:  # noqa: BLE001 — provider/network errors → fallback
+        if is_daily_quota_error(exc):
+            raise_if_daily_quota(exc, model_id=model_id_override)
         retries_used = int(getattr(exc, "retries_used", 0) or 0)
         return (
             fallback_classification(entry, source_kind=source_kind),
@@ -618,6 +718,8 @@ def classify_entries_batch(
     model_config: dict[str, Any] | None = None,
     api_key: str | None = None,
     item_ids: list[str] | None = None,
+    usage_guard: LlmUsageGuard | None = None,
+    model_id_override: str | None = None,
 ) -> tuple[dict[str, ClassificationResult], list[str], int]:
     """Classify up to batch_size items in one Gemini call.
 
@@ -627,7 +729,7 @@ def classify_entries_batch(
     if not entries:
         return {}, [], 0
     cfg = model_config if model_config is not None else load_model_config()
-    model_id = str(cfg.get("pipeline_model") or cfg["model_id"])
+    model_id = model_id_override or resolve_pipeline_model(cfg)
     max_excerpt = int(cfg.get("max_excerpt_chars", 4000))
     timeout_seconds = float(cfg.get("request_timeout_seconds", 60))
     sleep_seconds = float(cfg.get("rate_limit_sleep_seconds", 1.0))
@@ -640,6 +742,9 @@ def classify_entries_batch(
     if len(set(ids)) != len(ids):
         raise ClassifyError("batch item ids must be unique")
 
+    if usage_guard is not None:
+        usage_guard.check_soft_budget()
+
     key = api_key if api_key is not None else _require_api_key()
     today_utc = datetime.now(timezone.utc).date().isoformat()
     prompt = build_batch_classification_prompt(
@@ -651,14 +756,20 @@ def classify_entries_batch(
 
     def _once() -> str:
         wait_llm_interval()
-        return _gemini_generate(
-            key=key,
-            model_id=model_id,
-            prompt=prompt,
-            timeout_seconds=timeout_seconds,
-            response_schema=BatchedClassificationResponse,
-            temperature=0.2,
-        )
+        try:
+            return _gemini_generate(
+                key=key,
+                model_id=model_id,
+                prompt=prompt,
+                timeout_seconds=timeout_seconds,
+                response_schema=BatchedClassificationResponse,
+                temperature=0.2,
+            )
+        except DailyQuotaError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            raise_if_daily_quota(exc, model_id=model_id)
+            raise
 
     try:
         text, retries_used = call_with_retries(
@@ -667,10 +778,14 @@ def classify_entries_batch(
             base_seconds=base_seconds,
             max_seconds=max_retry_seconds,
         )
-    except ClassifyError:
+    except DailyQuotaError:
         raise
     except Exception as exc:  # noqa: BLE001
-        raise ClassifyError(f"Gemini API call failed ({model_id}): {exc}") from exc
+        _reraise_quota_or_classify(exc, model_id=model_id)
+        raise  # pragma: no cover
+
+    if usage_guard is not None:
+        usage_guard.record_call(1)
 
     if sleep_seconds > 0:
         time.sleep(sleep_seconds)
@@ -686,10 +801,13 @@ def classify_entries_batch_with_fallback(
     api_key: str | None = None,
     source_kinds: dict[str, str] | None = None,
     item_ids: list[str] | None = None,
+    usage_guard: LlmUsageGuard | None = None,
+    model_id_override: str | None = None,
 ) -> list[tuple[NormalizedEntry, ClassificationResult, bool, str | None, int]]:
     """Batch-classify entries; missing/invalid ids retried once individually.
 
     Only items that still fail after the individual retry become mid-score fallbacks.
+    DailyQuotaError propagates immediately (no individual retries, no fallback).
     Returns one tuple per input entry (same order):
         (entry, result, used_fallback, error_message_or_None, retries_used)
     """
@@ -709,14 +827,20 @@ def classify_entries_batch_with_fallback(
             model_config=model_config,
             api_key=api_key,
             item_ids=ids,
+            usage_guard=usage_guard,
+            model_id_override=model_id_override,
         )
         retries_total += retries_used
+    except DailyQuotaError:
+        raise
     except ClassifyError as exc:
         batch_error = str(exc)
         retries_total += int(getattr(exc, "retries_used", 0) or 0)
         accepted = {}
         missing = list(ids)
     except Exception as exc:  # noqa: BLE001
+        if is_daily_quota_error(exc):
+            raise_if_daily_quota(exc, model_id=model_id_override)
         batch_error = str(exc)
         retries_total += int(getattr(exc, "retries_used", 0) or 0)
         accepted = {}
@@ -727,10 +851,16 @@ def classify_entries_batch_with_fallback(
         entry = entry_by_id[mid]
         try:
             result, retries_used = classify_entry(
-                entry, model_config=model_config, api_key=api_key
+                entry,
+                model_config=model_config,
+                api_key=api_key,
+                usage_guard=usage_guard,
+                model_id_override=model_id_override,
             )
             accepted[mid] = result
             retries_total += retries_used
+        except DailyQuotaError:
+            raise
         except ClassifyError:
             continue
         except Exception:  # noqa: BLE001

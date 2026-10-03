@@ -30,7 +30,7 @@ CREATE TABLE IF NOT EXISTS news_items (
     content_hash TEXT NOT NULL,
     relevance_score REAL,
     run_id TEXT,
-    -- classified | filtered (gate rejects are stored but hidden from the digest UI)
+    -- classified | filtered | pending_scoring | scoring
     status TEXT NOT NULL DEFAULT 'classified',
     filter_reason TEXT,
     -- LLM fields: competitor | emerging | industry
@@ -95,3 +95,12 @@ CREATE TABLE IF NOT EXISTS source_run_stats (
 );
 
 CREATE INDEX IF NOT EXISTS idx_source_run_stats_run ON source_run_stats(run_id);
+
+-- Soft per-model daily call counters (pipeline | ask | rescore). Hard stop is API PerDay.
+CREATE TABLE IF NOT EXISTS llm_usage (
+    date_utc TEXT NOT NULL,
+    purpose TEXT NOT NULL,             -- pipeline | ask | rescore
+    model TEXT NOT NULL,
+    calls INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (date_utc, purpose, model)
+);

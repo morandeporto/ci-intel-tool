@@ -58,3 +58,44 @@ def select_fallbacks_for_rescore(
 
     eligible.sort(key=lambda pair: pair[0], reverse=True)
     return [row for _dt, row in eligible[:limit]]
+
+
+def select_items_for_rescore(
+    rows: Sequence[dict[str, Any]],
+    *,
+    within_days: int,
+    limit: int,
+    now: datetime | None = None,
+) -> list[dict[str, Any]]:
+    """Return pending_scoring / scoring / is_fallback rows: newest first, capped.
+
+    Used by end-of-run heal and the nightly retry job (shared selection).
+    """
+    if within_days < 1:
+        raise ValueError("within_days must be >= 1")
+    if limit < 1:
+        raise ValueError("limit must be >= 1")
+
+    now_utc = now or datetime.now(timezone.utc)
+    if now_utc.tzinfo is None:
+        now_utc = now_utc.replace(tzinfo=timezone.utc)
+    else:
+        now_utc = now_utc.astimezone(timezone.utc)
+    cutoff = now_utc - timedelta(days=within_days)
+
+    eligible: list[tuple[datetime, dict[str, Any]]] = []
+    for row in rows:
+        status = str(row.get("status") or "")
+        is_pending = status in ("pending_scoring", "scoring")
+        is_fallback = bool(row.get("is_fallback"))
+        if not is_pending and not is_fallback:
+            continue
+        ingested = parse_ingested_at(row.get("ingested_at"))
+        if ingested is None:
+            continue
+        if ingested < cutoff:
+            continue
+        eligible.append((ingested, row))
+
+    eligible.sort(key=lambda pair: pair[0], reverse=True)
+    return [row for _dt, row in eligible[:limit]]

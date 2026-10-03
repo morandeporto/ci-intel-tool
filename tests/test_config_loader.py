@@ -20,6 +20,9 @@ def test_model_config_has_window_and_selection_slots() -> None:
     assert cfg["fetch_timeout_seconds"] == 15
     assert cfg["fetch_concurrency"] == 8
     assert cfg["batch_size"] == 5
+    assert cfg["pipeline_model"] == cfg["model_id"]
+    assert "gemini-3.8-flash" in cfg.get("model_daily_limits", {})
+    assert cfg.get("quota_day_timezone") == "UTC"
     reserved = cfg["selection"]["reserved_slots"]
     assert reserved["official_competitor"] == 8
     assert reserved["emerging"] == 4

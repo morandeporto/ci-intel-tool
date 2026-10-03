@@ -509,5 +509,185 @@ class Repository:
         )
         self.conn.commit()
 
+    # --- llm_usage (soft per-model daily counters) ----------------------
+    def get_llm_usage_calls(
+        self,
+        *,
+        date_utc: str,
+        model: str,
+        purpose: str | None = None,
+    ) -> int:
+        """Sum soft call counters for a model on a calendar day."""
+        if purpose is None:
+            cur = self.conn.execute(
+                """
+                SELECT COALESCE(SUM(calls), 0) AS c FROM llm_usage
+                WHERE date_utc = ? AND model = ?
+                """,
+                (date_utc, model),
+            )
+        else:
+            cur = self.conn.execute(
+                """
+                SELECT COALESCE(SUM(calls), 0) AS c FROM llm_usage
+                WHERE date_utc = ? AND model = ? AND purpose = ?
+                """,
+                (date_utc, model, purpose),
+            )
+        row = cur.fetchone()
+        return int(_scalar(row, "c", 0) or 0)
+
+    def increment_llm_usage(
+        self,
+        *,
+        date_utc: str,
+        purpose: str,
+        model: str,
+        calls: int = 1,
+    ) -> int:
+        """Atomically bump the soft usage counter; returns new total for that row."""
+        if calls < 1:
+            return self.get_llm_usage_calls(
+                date_utc=date_utc, model=model, purpose=purpose
+            )
+        self.conn.execute(
+            """
+            INSERT INTO llm_usage (date_utc, purpose, model, calls)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(date_utc, purpose, model) DO UPDATE SET
+                calls = calls + excluded.calls
+            """,
+            (date_utc, purpose, model, calls),
+        )
+        self.conn.commit()
+        return self.get_llm_usage_calls(
+            date_utc=date_utc, model=model, purpose=purpose
+        )
+
+    def list_pending_or_fallback_items(self) -> list[dict[str, Any]]:
+        """Rows awaiting (re)scoring: pending_scoring or is_fallback."""
+        cur = self.conn.execute(
+            """
+            SELECT id, title, url, source_id, competitor, published_at, ingested_at,
+                   summary, category, raw_excerpt, content_hash, relevance_score,
+                   run_id, status, filter_reason, item_type, jfrog_implication,
+                   is_fallback
+            FROM news_items
+            WHERE COALESCE(status, 'classified') != 'filtered'
+              AND (
+                    COALESCE(status, '') IN ('pending_scoring', 'scoring')
+                 OR COALESCE(is_fallback, 0) = 1
+              )
+            ORDER BY ingested_at DESC
+            """
+        )
+        return _rows_as_dicts(cur)
+
+    def release_stale_scoring_claims(
+        self,
+        *,
+        older_than_minutes: int = 30,
+    ) -> int:
+        """Return items stuck in status=scoring back to pending_scoring."""
+        # ingested_at / a side column isn't ideal; use filter_reason stamp when claimed.
+        # Claim stores filter_reason = 'scoring_claimed_at:<iso>'.
+        cur = self.conn.execute(
+            """
+            SELECT id, filter_reason FROM news_items
+            WHERE status = 'scoring'
+            """
+        )
+        rows = _rows_as_dicts(cur)
+        now = datetime.now(timezone.utc)
+        released = 0
+        for row in rows:
+            reason = str(row.get("filter_reason") or "")
+            claimed_at = None
+            if reason.startswith("scoring_claimed_at:"):
+                raw = reason.split(":", 1)[1]
+                try:
+                    claimed_at = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+                except ValueError:
+                    claimed_at = None
+            if claimed_at is None:
+                # Unknown claim time — release to avoid permanent stuck state.
+                stale = True
+            else:
+                if claimed_at.tzinfo is None:
+                    claimed_at = claimed_at.replace(tzinfo=timezone.utc)
+                age_min = (now - claimed_at.astimezone(timezone.utc)).total_seconds() / 60.0
+                stale = age_min > float(older_than_minutes)
+            if not stale:
+                continue
+            self.conn.execute(
+                """
+                UPDATE news_items
+                SET status = 'pending_scoring', filter_reason = 'stale_scoring_claim'
+                WHERE id = ? AND status = 'scoring'
+                """,
+                (row["id"],),
+            )
+            released += 1
+        if released:
+            self.conn.commit()
+        return released
+
+    def claim_item_for_scoring(self, news_item_id: str) -> bool:
+        """Atomically claim a pending_scoring (or reclaimable) row for scoring.
+
+        Returns True only when this caller won the claim (rows affected == 1).
+        """
+        stamp = f"scoring_claimed_at:{_utc_now()}"
+        cur = self.conn.execute(
+            """
+            UPDATE news_items
+            SET status = 'scoring', filter_reason = ?
+            WHERE id = ?
+              AND status = 'pending_scoring'
+            """,
+            (stamp, news_item_id),
+        )
+        self.conn.commit()
+        affected = getattr(cur, "rowcount", None)
+        if affected is None:
+            # libsql may not expose rowcount — verify status.
+            row = self.conn.execute(
+                "SELECT status, filter_reason FROM news_items WHERE id = ?",
+                (news_item_id,),
+            ).fetchone()
+            if row is None:
+                return False
+            status = str(_scalar(row, "status", 0) or "")
+            reason = str(_scalar(row, "filter_reason", 1) or "")
+            return status == "scoring" and reason == stamp
+        return int(affected) == 1
+
+    def claim_fallback_item_for_scoring(self, news_item_id: str) -> bool:
+        """Claim an is_fallback row that is not already being scored."""
+        stamp = f"scoring_claimed_at:{_utc_now()}"
+        cur = self.conn.execute(
+            """
+            UPDATE news_items
+            SET status = 'scoring', filter_reason = ?
+            WHERE id = ?
+              AND COALESCE(is_fallback, 0) = 1
+              AND COALESCE(status, 'classified') NOT IN ('filtered', 'scoring')
+            """,
+            (stamp, news_item_id),
+        )
+        self.conn.commit()
+        affected = getattr(cur, "rowcount", None)
+        if affected is None:
+            row = self.conn.execute(
+                "SELECT status, filter_reason FROM news_items WHERE id = ?",
+                (news_item_id,),
+            ).fetchone()
+            if row is None:
+                return False
+            status = str(_scalar(row, "status", 0) or "")
+            reason = str(_scalar(row, "filter_reason", 1) or "")
+            return status == "scoring" and reason == stamp
+        return int(affected) == 1
+
 
 __all__ = ["Repository", "DIMENSION_NAMES"]

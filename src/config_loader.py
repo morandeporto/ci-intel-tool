@@ -70,6 +70,11 @@ def load_weights(config_dir: Path | None = None) -> dict[str, float]:
 def load_model_config(config_dir: Path | None = None) -> dict[str, Any]:
     base = config_dir or CONFIG_DIR
     data = _load_yaml(base / "model.yaml")
+    # pipeline_model is canonical; model_id kept as alias for older callers/tests.
+    if "pipeline_model" not in data and "model_id" in data:
+        data["pipeline_model"] = data["model_id"]
+    if "model_id" not in data and "pipeline_model" in data:
+        data["model_id"] = data["pipeline_model"]
     required = (
         "provider",
         "model_id",
@@ -90,6 +95,13 @@ def load_model_config(config_dir: Path | None = None) -> dict[str, Any]:
             raise ConfigError(
                 f"model.yaml selection.reserved_slots missing key: {slot_key}"
             )
+    # Soft budget sanity check (warn only — never hard-fail config load).
+    try:
+        from src.process.llm_quota import warn_if_budgets_exceed_limits
+
+        warn_if_budgets_exceed_limits(data)
+    except Exception:  # noqa: BLE001
+        pass
     return data
 
 

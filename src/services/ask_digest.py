@@ -17,8 +17,22 @@ from dotenv import load_dotenv
 
 from src.config_loader import PROJECT_ROOT, load_model_config
 from src.db.repository import Repository
-from src.process.llm_classify import ClassifyError
+from src.process.llm_classify import ClassifyError, LlmUsageGuard
+from src.process.llm_quota import (
+    DailyQuotaError,
+    is_daily_quota_error,
+    model_min_interval_seconds,
+    raise_if_daily_quota,
+    resolve_ask_model,
+)
+from src.process.llm_rate_limit import configure_llm_interval, wait_llm_interval
 from src.services.comparison import get_comparison_matrix
+
+QUOTA_FRIENDLY_MESSAGE = (
+    "Ask the Digest has hit today's Gemini free-tier quota for this model. "
+    "Please try again after the quota resets, or ask your operator to point "
+    "ask_model at another model id in config/model.yaml."
+)
 
 load_dotenv(PROJECT_ROOT / ".env")
 
@@ -236,7 +250,7 @@ def ask_digest(
         )
 
     cfg = model_config if model_config is not None else load_model_config()
-    model_id = str(cfg["model_id"])
+    model_id = resolve_ask_model(cfg)
     timeout_seconds = float(cfg.get("request_timeout_seconds", 60))
     api_key = os.getenv("GEMINI_API_KEY", "").strip()
     if not api_key or api_key == "your-gemini-api-key-here":
@@ -259,7 +273,15 @@ def ask_digest(
             "google-generativeai is not installed. Run: pip install -r requirements.txt"
         ) from exc
 
+    usage_guard = LlmUsageGuard(repo, cfg, purpose="ask", model_id=model_id)
     try:
+        usage_guard.check_soft_budget()
+    except DailyQuotaError:
+        raise ClassifyError(QUOTA_FRIENDLY_MESSAGE)
+
+    configure_llm_interval(model_min_interval_seconds(cfg, model_id))
+    try:
+        wait_llm_interval()
         genai.configure(api_key=api_key)
         model = genai.GenerativeModel(model_id)
         response = model.generate_content(
@@ -268,11 +290,20 @@ def ask_digest(
             request_options=RequestOptions(timeout=timeout_seconds),
         )
         answer = (response.text or "").strip()
+    except DailyQuotaError:
+        raise ClassifyError(QUOTA_FRIENDLY_MESSAGE)
     except Exception as exc:  # noqa: BLE001
+        if is_daily_quota_error(exc):
+            try:
+                raise_if_daily_quota(exc, model_id=model_id)
+            except DailyQuotaError:
+                raise ClassifyError(QUOTA_FRIENDLY_MESSAGE) from exc
         raise ClassifyError(f"Ask-digest Gemini call failed ({model_id}): {exc}") from exc
 
     if not answer:
         raise ClassifyError("Gemini returned an empty answer")
+
+    usage_guard.record_call(1)
 
     return AskDigestResult(
         answer=answer,

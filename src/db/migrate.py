@@ -124,6 +124,21 @@ def migrate_schema(conn: Any) -> list[str]:
         changes.append("source_run_stats")
         logger.info("Migrated: created source_run_stats table")
 
+    if not _table_exists(conn, "llm_usage"):
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS llm_usage (
+                date_utc TEXT NOT NULL,
+                purpose TEXT NOT NULL,
+                model TEXT NOT NULL,
+                calls INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (date_utc, purpose, model)
+            )
+            """
+        )
+        changes.append("llm_usage")
+        logger.info("Migrated: created llm_usage table")
+
     try:
         conn.commit()
     except Exception:

@@ -29,6 +29,9 @@ _TIMEOUT_MARKERS = (
 
 def is_transient_error(exc: BaseException) -> bool:
     """True for overload / rate-limit / timeout style failures."""
+    # Daily PerDay quota must never be retried (see llm_quota.DailyQuotaError).
+    if type(exc).__name__ == "DailyQuotaError":
+        return False
     msg = str(exc).lower()
     if _TRANSIENT_STATUS.search(msg):
         # Explicitly allow 429/503 even when other digits appear in the message.
@@ -56,6 +59,8 @@ def is_transient_error(exc: BaseException) -> bool:
 
 def is_non_retryable_client_error(exc: BaseException) -> bool:
     """True for 4xx other than 429 (bad request, auth, not found, …)."""
+    if type(exc).__name__ == "DailyQuotaError":
+        return True
     msg = str(exc)
     # Prefer structured status when available.
     status = getattr(exc, "status_code", None)

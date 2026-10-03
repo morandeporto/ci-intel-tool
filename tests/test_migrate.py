@@ -57,6 +57,7 @@ def test_migrate_adds_columns_and_source_run_stats(tmp_path: Path) -> None:
         changes = migrate_schema(conn)
         assert "news_items.status" in changes
         assert "source_run_stats" in changes
+        assert "llm_usage" in changes
         cols = _table_columns(conn, "news_items")
         assert "status" in cols
         assert "filter_reason" in cols
@@ -64,6 +65,7 @@ def test_migrate_adds_columns_and_source_run_stats(tmp_path: Path) -> None:
         assert "jfrog_implication" in cols
         assert "is_fallback" in cols
         assert _table_exists(conn, "source_run_stats")
+        assert _table_exists(conn, "llm_usage")
         # Existing row preserved.
         row = conn.execute("SELECT title, status FROM news_items WHERE id='1'").fetchone()
         assert row[0] == "Keep me"
@@ -82,5 +84,6 @@ def test_init_db_applies_migration(tmp_path: Path) -> None:
         cols = _table_columns(conn, "news_items")
         assert "status" in cols
         assert _table_exists(conn, "source_run_stats")
+        assert _table_exists(conn, "llm_usage")
     finally:
         conn.close()
