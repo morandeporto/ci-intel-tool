@@ -64,6 +64,8 @@ def test_migrate_adds_columns_and_source_run_stats(tmp_path: Path) -> None:
         assert "item_type" in cols
         assert "jfrog_implication" in cols
         assert "is_fallback" in cols
+        assert "scored_by_model" in cols
+        assert "news_items.scored_by_model" in changes
         assert _table_exists(conn, "source_run_stats")
         assert _table_exists(conn, "llm_usage")
         # Existing row preserved.
@@ -83,6 +85,7 @@ def test_init_db_applies_migration(tmp_path: Path) -> None:
     try:
         cols = _table_columns(conn, "news_items")
         assert "status" in cols
+        assert "scored_by_model" in cols
         assert _table_exists(conn, "source_run_stats")
         assert _table_exists(conn, "llm_usage")
     finally:

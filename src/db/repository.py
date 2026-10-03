@@ -16,7 +16,7 @@ NEWS_WITH_SCORES_SQL = """
     SELECT n.id, n.title, n.url, n.source_id, n.competitor, n.published_at,
            n.ingested_at, n.summary, n.category, n.raw_excerpt, n.content_hash,
            n.relevance_score, n.run_id, n.status, n.filter_reason,
-           n.item_type, n.jfrog_implication, n.is_fallback,
+           n.item_type, n.jfrog_implication, n.is_fallback, n.scored_by_model,
            d.jfrog_relevance, d.competitor_signal, d.strategic_impact,
            d.freshness, d.market_visibility, d.model_id, d.scored_at
     FROM news_items n
@@ -236,7 +236,7 @@ class Repository:
                     ingested_at = ?, summary = ?, category = ?, raw_excerpt = ?,
                     content_hash = ?, relevance_score = ?, run_id = ?,
                     status = ?, filter_reason = ?, item_type = ?, jfrog_implication = ?,
-                    is_fallback = ?
+                    is_fallback = ?, scored_by_model = ?
                 WHERE url = ?
                 """,
                 (
@@ -256,6 +256,7 @@ class Repository:
                     item.item_type,
                     item.jfrog_implication,
                     1 if item.is_fallback else 0,
+                    item.scored_by_model,
                     item.url,
                 ),
             )
@@ -266,8 +267,9 @@ class Repository:
                 INSERT INTO news_items (
                     id, title, url, source_id, competitor, published_at, ingested_at,
                     summary, category, raw_excerpt, content_hash, relevance_score, run_id,
-                    status, filter_reason, item_type, jfrog_implication, is_fallback
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    status, filter_reason, item_type, jfrog_implication, is_fallback,
+                    scored_by_model
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     item.id,
@@ -288,6 +290,7 @@ class Repository:
                     item.item_type,
                     item.jfrog_implication,
                     1 if item.is_fallback else 0,
+                    item.scored_by_model,
                 ),
             )
         self.conn.commit()
@@ -360,7 +363,7 @@ class Repository:
             SELECT id, title, url, source_id, competitor, published_at, ingested_at,
                    summary, category, raw_excerpt, content_hash, relevance_score,
                    run_id, status, filter_reason, item_type, jfrog_implication,
-                   is_fallback
+                   is_fallback, scored_by_model
             FROM news_items
             WHERE COALESCE(is_fallback, 0) = 1
               AND COALESCE(status, 'classified') != 'filtered'
@@ -380,6 +383,7 @@ class Repository:
         relevance_score: float | None,
         is_fallback: bool,
         scores: DimensionScores | None,
+        scored_by_model: str | None = None,
     ) -> None:
         """Update a stored news row after (re)classification."""
         self.conn.execute(
@@ -387,7 +391,7 @@ class Repository:
             UPDATE news_items SET
                 summary = ?, category = ?, item_type = ?, jfrog_implication = ?,
                 relevance_score = ?, is_fallback = ?, status = 'classified',
-                filter_reason = NULL
+                filter_reason = NULL, scored_by_model = ?
             WHERE id = ?
             """,
             (
@@ -397,6 +401,7 @@ class Repository:
                 jfrog_implication,
                 relevance_score,
                 1 if is_fallback else 0,
+                scored_by_model,
                 news_item_id,
             ),
         )
@@ -571,7 +576,7 @@ class Repository:
             SELECT id, title, url, source_id, competitor, published_at, ingested_at,
                    summary, category, raw_excerpt, content_hash, relevance_score,
                    run_id, status, filter_reason, item_type, jfrog_implication,
-                   is_fallback
+                   is_fallback, scored_by_model
             FROM news_items
             WHERE COALESCE(status, 'classified') != 'filtered'
               AND (

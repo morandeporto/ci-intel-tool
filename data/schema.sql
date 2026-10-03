@@ -38,6 +38,8 @@ CREATE TABLE IF NOT EXISTS news_items (
     jfrog_implication TEXT,
     -- 1 when Gemini failed and mid-score placeholders were stored
     is_fallback INTEGER NOT NULL DEFAULT 0,
+    -- Exact Gemini model id that produced the classification (null if unscored)
+    scored_by_model TEXT,
     FOREIGN KEY (run_id) REFERENCES pipeline_runs(id)
 );
 

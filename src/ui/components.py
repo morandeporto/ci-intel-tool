@@ -187,6 +187,13 @@ def render_news_card(item: dict[str, Any]) -> str:
         float(score) if score is not None else None,
         is_fallback=is_fallback,
     )
+    scored_by = (item.get("scored_by_model") or item.get("model_id") or "").strip()
+    model_html = ""
+    if scored_by:
+        model_html = (
+            f'<span class="ci-model-tag" title="Classified by {_e(scored_by)}">'
+            f"model: {_e(scored_by)}</span>"
+        )
     # Single-line outer structure so Streamlit does not fragment the card.
     return (
         f'<div class="ci-card">'
@@ -199,7 +206,8 @@ def render_news_card(item: dict[str, Any]) -> str:
         f'<p class="ci-card-summary">{summary}</p>'
         f"{implication_html}"
         f"{link_html}"
-        f'<div class="ci-muted ci-card-date">{_e(published)} (Israel)</div>'
+        f'<div class="ci-muted ci-card-date">{_e(published)} (Israel)'
+        f"{(' · ' + model_html) if model_html else ''}</div>"
         f"{dim_html}"
         f"</div></div>"
     )

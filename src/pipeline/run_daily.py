@@ -445,6 +445,7 @@ def rescore_fallback_items(
                     relevance_score=score,
                     is_fallback=False,
                     scores=dims,
+                    scored_by_model=model_id,
                 )
                 stats.ok += 1
             except Exception as exc:  # noqa: BLE001
@@ -496,6 +497,8 @@ def _persist_classified(
 ) -> None:
     # Fallback rows keep mid dimension scores for debugging but no ranking total.
     score = None if is_fallback else weighted_score(result.dimension_dict(), weights)
+    # Strip legacy ":fallback" suffix if a caller still passes it.
+    scored_by = model_id.split(":", 1)[0] if model_id else None
     news_id = str(uuid4())
     now = _utc_now()
     item = NewsItem(
@@ -516,6 +519,7 @@ def _persist_classified(
         item_type=result.item_type,
         jfrog_implication=result.jfrog_implication,
         is_fallback=is_fallback,
+        scored_by_model=scored_by,
     )
     news_id = repo.upsert_news_item(item)
     if not is_fallback:
@@ -525,7 +529,7 @@ def _persist_classified(
             strategic_impact=result.strategic_impact,
             freshness=result.freshness,
             market_visibility=result.market_visibility,
-            model_id=model_id,
+            model_id=scored_by or model_id,
             scored_at=now,
         )
         repo.save_dimension_scores(news_id, dims)
@@ -802,16 +806,13 @@ def run_daily(
                     continue
 
                 for entry, result, used_fallback, err, retries_used in batch_outcomes:
-                    persist_model_id = (
-                        f"{active_model}:fallback" if used_fallback else active_model
-                    )
                     try:
                         _persist_classified(
                             repo,
                             entry,
                             result,
                             weights=weights,
-                            model_id=persist_model_id,
+                            model_id=active_model,
                             run_id=run_id,
                             is_fallback=used_fallback,
                         )
