@@ -1,30 +1,33 @@
 # LLM provider settings. Swap pipeline_model / ask_model (and API key in .env)
 # to change models. Provider/model must never be hardcoded in application logic.
-# gemini-2.0-flash was retired by Google; gemini-3.8-flash is the current free-tier default.
 # Single API key only: GEMINI_API_KEY (no separate Ask key).
+# Model ids below were copied from a read-only list-models call (2026-10-03) — no aliases.
 
 provider: gemini
 # Primary pipeline classifier (also aliased as model_id for backward compatibility).
 pipeline_model: gemini-3.8-flash
 model_id: gemini-3.8-flash
-# Optional second model when the primary hits its daily PerDay quota (fill in after list-models).
-fallback_model: ""
-# Ask the Digest model (fill in after list-models; falls back to pipeline_model if empty).
-ask_model: ""
+# Used when the primary hits its daily PerDay quota, or via --use-fallback-model.
+fallback_model: gemini-3.5-flash-lite
+# Ask the Digest model (same GEMINI_API_KEY).
+ask_model: gemini-3.1-flash-lite
 
 # Soft per-model daily call budgets (llm_usage). Hard stop still comes from API PerDay errors.
-# Primary free-tier generate quota is typically 20/day — keep headroom for Ask / Run Now.
+# Conservative defaults — verify the real RPD for each model in Google AI Studio and adjust.
 model_daily_limits:
   gemini-3.8-flash: 20
-  # Add flash-lite (or other) ids here only after confirming via list-models — never guess.
+  gemini-3.5-flash-lite: 50
+  gemini-3.1-flash-lite: 50
 
 # Calendar day boundary for llm_usage counters.
 quota_day_timezone: UTC
 
 # Per-model minimum delay between Gemini calls (respect RPM).
-# Primary free tier ~5 RPM → 12s; Flash Lite ~15 RPM → 4s (set when model id is confirmed).
+# Primary ~5 RPM → 12s; Flash Lite ~15 RPM → 4s.
 model_min_interval_seconds:
   gemini-3.8-flash: 12.0
+  gemini-3.5-flash-lite: 4.0
+  gemini-3.1-flash-lite: 4.0
 
 max_items_per_run: 20
 max_per_source: 3
