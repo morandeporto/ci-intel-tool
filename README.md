@@ -39,9 +39,16 @@ The app uses **Turso** when `TURSO_DATABASE_URL` + `TURSO_AUTH_TOKEN` are set in
 | Tab | What you get |
 |-----|----------------|
 | **Daily Digest** | Ingestion-day filter (Israel), weight sliders, filters, 👍/👎, **Run Now** (see below) |
-| **Ask the Digest** | Light RAG: top-k news + curated comparison matrix → Gemini with citations, up to 2 session follow-ups |
+| **Ask the Digest** | Keyword retrieve over stored digest + curated matrix → Gemini (see below) |
 | **Comparison** | Curated capability matrix - every claim has a source link + quote, or **Unknown** |
 | **Pipeline runs** | Cron/manual run history plus per-source telemetry for the selected run |
+
+### How Ask the Digest works
+
+- **Retrieval:** keyword token overlap over the **whole** stored digest (non-`filtered` rows), take top **6**. **No embeddings.** Every Ask/follow-up **re-runs** retrieval using prior user questions in the thread **plus** the current question (not a reuse of the first answer’s item list).
+- **Grounding:** the prompt instructs the model to answer **ONLY** from retrieved news and the curated comparison matrix, and to say so clearly when neither covers the question. That is a **prompt instruction, not a technical guarantee**.
+- **Follow-ups:** a short transcript is re-sent with each call. It lives in Streamlit **session state only** (lost on refresh or **New chat**), max **2** follow-ups per thread (cost guardrail). This is **not** model memory.
+- **Empty coverage:** if the matrix is present but does not cover the question, there is **no** hard-coded empty UI state - the model decides and should say so under the prompt rule above. (A hard-coded short message is used only when retrieval finds nothing **and** comparison text is empty.)
 
 ### How the Daily Digest works
 
@@ -161,7 +168,7 @@ config/*.yaml   competitors, sources, relevance, weights, model, comparison
 | **Gemini models in config** (`pipeline_model`, `fallback_model`, `ask_model`) | Free-tier friendly for a ~2-day take-home; model **ids** swap in YAML (provider abstraction is Future Work - see limitations) |
 | **Weights in code, not in the LLM** | Dimension scores (1-5) are stored, retuning weights needs no re-query, **Save weights** persists to DB |
 | **Turso for shared demo, Postgres for production** | Shared reviewers now, managed Postgres if this were a real product |
-| **Light RAG Ask tab** | Retrieve-from-SQLite + curated comparison matrix → Gemini, max 2 follow-ups per session thread |
+| **Light RAG Ask tab** | Keyword overlap over full digest (top 6) + curated matrix; session-only transcript, max 2 follow-ups; prompt-only grounding (see Ask section) |
 | **Curated `comparison.yaml`** | Claims must be source-linked, never generated from model memory, not auto-updated by news |
 | **48h window + gate + balanced selection** | Survives date-only stamps / missed cron, cheap keyword gate for noisy outlets, reserved LLM seats by kind |
 | **Official JFrog blog + research RSS** | Verified feeds, Medium/status disabled once replacements passed |

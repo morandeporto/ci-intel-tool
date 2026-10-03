@@ -385,8 +385,14 @@ like untrusted package metadata - isolate, validate, then promote.
 ## [2026-10-02] Ask Digest: comparison matrix grounding + capped session follow-ups
 
 **Selected Option:** Inject the full curated `comparison.yaml` matrix into every Ask
-prompt alongside top-k retrieved news. Keep short **browser-session** chat history with
-a hard cap of **2 follow-ups** (3 user turns total) per thread, "New chat" resets.
+prompt alongside top-6 keyword-retrieved news. Prompt instructs: answer **ONLY** from
+those two sources and say so when neither covers the question (**prompt instruction,
+not a technical guarantee**). Short transcript is re-sent each call from Streamlit
+**session state** only (lost on refresh / New chat), hard cap **2 follow-ups**
+(3 user turns total). Not model memory. Each follow-up **re-runs** retrieval over the
+whole non-filtered digest using prior user questions + current question. If the matrix
+exists but does not cover the question, there is **no** hard-coded empty UI state -
+the model should say so under the prompt rule.
 
 **Alternatives Considered:**
 - Pass comparison into news *classification* scoring (rejected: biases daily scores;
@@ -395,15 +401,17 @@ a hard cap of **2 follow-ups** (3 user turns total) per thread, "New chat" reset
 - Persistent conversation table in SQLite (rejected: overkill for take-home demo)
 - Matrix-only when keywords match capabilities (deferred: matrix is small enough to
   always include, simpler prompt contract)
+- Hard-coded empty UI when matrix misses the question (rejected: matrix is almost
+  always present; rely on the prompt “say so clearly” rule instead)
 
 **Rationale:** Cost/Latency + Security - grounded product answers without inventing
-cells, follow-up continuity for demos without runaway spend. Not true model "memory":
-we resend prior turns in the prompt each call.
+cells, follow-up continuity for demos without runaway spend. Session transcript only.
 
 **How to Explain in an Interview (20-30 Seconds Verbal):**
-> "Ask is light RAG: keyword-retrieve news, always attach our sourced comparison
-> matrix, then one Gemini call. You can follow up twice in the same Streamlit session -
-> we resend that short transcript - then we force a new chat so tokens stay bounded."
+> "Ask keyword-retrieves over the whole digest, always attaches our sourced comparison
+> matrix, and tells Gemini to use only those - that's a prompt rule, not a sandbox.
+> Follow-ups re-retrieve and resend a short session transcript twice, then New chat -
+> nothing is stored as model memory."
 
 **JFrog Product Connection (If applicable):**
 A production CI assistant would treat comparison claims like curated catalog metadata
@@ -472,19 +480,24 @@ Not directly, analogous to separating trusted provenance from noisy signals in X
 
 ## [2026-10-02] Light RAG "Ask the Digest" now, embeddings later
 
-**Selected Option:** Retrieve top news from SQLite by keyword overlap + relevance, then
-prompt Gemini to answer **only** from those rows with citations. No Vector DB yet.
+**Selected Option:** Retrieve from the **whole** stored non-filtered digest by keyword
+token overlap (+ slight relevance boost), take top **6**, attach the curated comparison
+matrix, then call Gemini. **No embeddings / Vector DB.** Prompt says answer only from
+retrieved news + matrix (instruction, not a guarantee). See also the Ask follow-ups
+entry for session transcript / re-retrieve behavior.
 
 **Alternatives Considered:** Embeddings + Chroma/Pinecone now (rejected: corpus is small;
 listed as Future Work in the brief), plain chat without retrieval (rejected: invites
-hallucination).
+hallucination), recent-window-only retrieve (rejected: Ask should search the full digest
+the UI can already show).
 
 **Rationale:** Shows retrieve→augment→generate without over-engineering. When volume
 grows (thousands of items, semantic queries), swap the retriever for embeddings.
 
 **How to Explain in an Interview (20-30 Seconds Verbal):**
-> "Ask the Digest is intentional light RAG over our own database. The model may only
-> speak from retrieved, linked items. Embeddings come when keyword search stops scaling."
+> "Ask is intentional light RAG: keyword overlap over our SQLite digest, top six, plus
+> the sourced matrix - no embeddings yet. The model is told to stay inside that context;
+> we do not claim a technical hard block on outside knowledge."
 
 **JFrog Product Connection (If applicable):**
 Grounded answers with source links mirror "never trust unscanned/unknown provenance."
