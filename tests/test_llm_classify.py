@@ -133,7 +133,10 @@ def test_classify_entry_with_fallback_on_error(monkeypatch: pytest.MonkeyPatch) 
         raise llm_classify.ClassifyError("Gemini API call failed (gemini-x): 503")
 
     monkeypatch.setattr(llm_classify, "classify_entry", _boom)
-    result, used_fallback, err = llm_classify.classify_entry_with_fallback(_sample_entry())
+    result, used_fallback, err, retries = llm_classify.classify_entry_with_fallback(
+        _sample_entry()
+    )
     assert used_fallback is True
     assert err and "503" in err
+    assert retries == 0
     assert result.freshness == llm_classify.FALLBACK_DIMENSION_SCORE

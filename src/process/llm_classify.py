@@ -19,6 +19,7 @@ from pydantic import BaseModel, ValidationError, field_validator
 from src.config_loader import PROJECT_ROOT, load_model_config
 from src.db.models import DIMENSION_NAMES
 from src.ingest.normalize import NormalizedEntry
+from src.process.retry import call_with_retries
 
 # Load .env from project root (explicit path avoids fragile cwd / stdin lookups).
 # Secrets stay out of code; only the key name is referenced here.
@@ -260,29 +261,14 @@ def _require_api_key() -> str:
     return key
 
 
-def classify_entry(
-    entry: NormalizedEntry,
+def _gemini_generate(
     *,
-    model_config: dict[str, Any] | None = None,
-    api_key: str | None = None,
-) -> ClassificationResult:
-    """Call Gemini with structured JSON output for one news item.
-
-    model_id is read ONLY from config/model.yaml (never hardcoded) so providers
-    can be swapped with a one-line config change.
-    """
-    cfg = model_config if model_config is not None else load_model_config()
-    model_id = str(cfg["model_id"])
-    max_excerpt = int(cfg.get("max_excerpt_chars", 4000))
-    timeout_seconds = float(cfg.get("request_timeout_seconds", 60))
-    sleep_seconds = float(cfg.get("rate_limit_sleep_seconds", 1.0))
-
-    key = api_key if api_key is not None else _require_api_key()
-    today_utc = datetime.now(timezone.utc).date().isoformat()
-    prompt = build_classification_prompt(
-        entry, max_excerpt_chars=max_excerpt, today_utc=today_utc
-    )
-
+    key: str,
+    model_id: str,
+    prompt: str,
+    timeout_seconds: float,
+) -> str:
+    """One Gemini generate_content call; raises ClassifyError on failure."""
     try:
         import google.generativeai as genai
         from google.generativeai.types import GenerationConfig, RequestOptions
@@ -294,7 +280,6 @@ def classify_entry(
     try:
         genai.configure(api_key=key)
         model = genai.GenerativeModel(model_id)
-        # Structured output keeps parsing deterministic and cheaper to validate.
         generation_config = GenerationConfig(
             response_mime_type="application/json",
             response_schema=ClassificationResult,
@@ -310,10 +295,6 @@ def classify_entry(
     except Exception as exc:  # noqa: BLE001 — surface provider errors cleanly
         raise ClassifyError(f"Gemini API call failed ({model_id}): {exc}") from exc
 
-    # Cost/rate guardrail: sleep after each call so a large run cannot burst spend.
-    if sleep_seconds > 0:
-        time.sleep(sleep_seconds)
-
     try:
         text = (response.text or "").strip()
     except Exception as exc:  # noqa: BLE001 — blocked/empty candidates raise here
@@ -321,8 +302,62 @@ def classify_entry(
 
     if not text:
         raise ClassifyError("Gemini returned an empty response")
+    return text
 
-    return parse_classification_response(text)
+
+def classify_entry(
+    entry: NormalizedEntry,
+    *,
+    model_config: dict[str, Any] | None = None,
+    api_key: str | None = None,
+) -> tuple[ClassificationResult, int]:
+    """Call Gemini with structured JSON output for one news item.
+
+    Retries transient 503/429/timeouts (config: llm_max_attempts).
+    Returns ``(result, retries_used)``.
+    model_id is read ONLY from config/model.yaml (never hardcoded).
+    """
+    cfg = model_config if model_config is not None else load_model_config()
+    model_id = str(cfg["model_id"])
+    max_excerpt = int(cfg.get("max_excerpt_chars", 4000))
+    timeout_seconds = float(cfg.get("request_timeout_seconds", 60))
+    sleep_seconds = float(cfg.get("rate_limit_sleep_seconds", 1.0))
+    max_attempts = int(cfg.get("llm_max_attempts", 3))
+    base_seconds = float(cfg.get("llm_retry_base_seconds", 1.0))
+    max_retry_seconds = float(cfg.get("llm_retry_max_seconds", 20.0))
+
+    key = api_key if api_key is not None else _require_api_key()
+    today_utc = datetime.now(timezone.utc).date().isoformat()
+    prompt = build_classification_prompt(
+        entry, max_excerpt_chars=max_excerpt, today_utc=today_utc
+    )
+
+    def _once() -> str:
+        return _gemini_generate(
+            key=key,
+            model_id=model_id,
+            prompt=prompt,
+            timeout_seconds=timeout_seconds,
+        )
+
+    try:
+        text, retries_used = call_with_retries(
+            _once,
+            max_attempts=max_attempts,
+            base_seconds=base_seconds,
+            max_seconds=max_retry_seconds,
+        )
+    except ClassifyError:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        raise ClassifyError(f"Gemini API call failed ({model_id}): {exc}") from exc
+
+    # Cost/rate guardrail: sleep after each successful item (concurrency step may
+    # also space workers; this keeps sequential callers polite).
+    if sleep_seconds > 0:
+        time.sleep(sleep_seconds)
+
+    return parse_classification_response(text), retries_used
 
 
 def classify_entry_or_none(
@@ -333,7 +368,10 @@ def classify_entry_or_none(
 ) -> ClassificationResult | None:
     """Like classify_entry, but returns None on ClassifyError (per-item resilience)."""
     try:
-        return classify_entry(entry, model_config=model_config, api_key=api_key)
+        result, _retries = classify_entry(
+            entry, model_config=model_config, api_key=api_key
+        )
+        return result
     except ClassifyError:
         return None
 
@@ -344,23 +382,28 @@ def classify_entry_with_fallback(
     model_config: dict[str, Any] | None = None,
     api_key: str | None = None,
     source_kind: str | None = None,
-) -> tuple[ClassificationResult, bool, str | None]:
+) -> tuple[ClassificationResult, bool, str | None, int]:
     """Classify via Gemini; on any ClassifyError return mid-score fallback.
 
     Returns:
-        (result, used_fallback, error_message_or_None)
+        (result, used_fallback, error_message_or_None, retries_used)
     """
     try:
-        return classify_entry(entry, model_config=model_config, api_key=api_key), False, None
+        result, retries_used = classify_entry(
+            entry, model_config=model_config, api_key=api_key
+        )
+        return result, False, None, retries_used
     except ClassifyError as exc:
         return (
             fallback_classification(entry, source_kind=source_kind),
             True,
             str(exc),
+            0,
         )
     except Exception as exc:  # noqa: BLE001 — provider/network errors → fallback
         return (
             fallback_classification(entry, source_kind=source_kind),
             True,
             str(exc),
+            0,
         )

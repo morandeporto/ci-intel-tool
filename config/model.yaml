@@ -16,6 +16,12 @@ fetch_timeout_seconds: 15
 fetch_concurrency: 8
 max_excerpt_chars: 4000
 rate_limit_sleep_seconds: 1.0
+# LLM reliability: retry transient 503/429/timeouts (not other 4xx).
+llm_max_attempts: 3
+llm_retry_base_seconds: 1.0
+llm_retry_max_seconds: 20.0
+# Cap concurrent Gemini calls (step 2); keep burst small.
+llm_concurrency: 3
 
 # Reserved minimum slots by source kind when selecting items for the LLM.
 # Unused slots flow to other kinds. industry + community share one combined pool.

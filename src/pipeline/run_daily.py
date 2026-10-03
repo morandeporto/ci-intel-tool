@@ -61,6 +61,9 @@ class PipelineResult:
     items_scored: int = 0
     items_failed: int = 0
     items_filtered: int = 0
+    items_fallback: int = 0
+    items_classified_ok: int = 0
+    retries_used: int = 0
     source_errors: int = 0
     dry_run: bool = False
     message: str = ""
@@ -354,6 +357,8 @@ def run_daily(
     items_failed = 0
     items_fallback = 0
     items_filtered = 0
+    items_classified_ok = 0
+    retries_used_total = 0
     classify_errors: list[str] = []
 
     def _connect():
@@ -385,7 +390,7 @@ def run_daily(
             classified_by_source: dict[str, int] = {}
             for entry in selected:
                 kind = str((source_meta.get(entry.source_id) or {}).get("kind") or "")
-                result, used_fallback, err = classify_entry_with_fallback(
+                result, used_fallback, err, retries_used = classify_entry_with_fallback(
                     entry, model_config=model_cfg, source_kind=kind
                 )
                 persist_model_id = (
@@ -402,6 +407,7 @@ def run_daily(
                         is_fallback=used_fallback,
                     )
                     items_scored += 1
+                    retries_used_total += int(retries_used)
                     classified_by_source[entry.source_id] = (
                         classified_by_source.get(entry.source_id, 0) + 1
                     )
@@ -409,6 +415,8 @@ def run_daily(
                         items_fallback += 1
                         if err:
                             classify_errors.append(f"{entry.url}: {err}")
+                    else:
+                        items_classified_ok += 1
                 except Exception as exc:  # noqa: BLE001 — persist must not kill the run
                     items_failed += 1
                     classify_errors.append(f"{entry.url}: persist failed: {exc}")
@@ -492,6 +500,9 @@ def run_daily(
                 items_scored=items_scored,
                 items_failed=items_failed,
                 items_filtered=items_filtered,
+                items_fallback=items_fallback,
+                items_classified_ok=items_classified_ok,
+                retries_used=retries_used_total,
                 source_errors=source_errors,
                 dry_run=False,
                 message=error_message or "Pipeline completed.",
