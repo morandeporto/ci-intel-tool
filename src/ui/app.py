@@ -507,7 +507,7 @@ def _render_digest_tab(repo: Repository, db_path: Path | None) -> None:
             "Minimum relevance",
             min_value=0.0,
             max_value=5.0,
-            value=2.0,
+            value=2.5,
             step=0.1,
             key="digest_min_relevance",
             help=(
