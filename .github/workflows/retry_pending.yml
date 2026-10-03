@@ -1,22 +1,30 @@
-# Daily competitive-intelligence ingestion → Turso (shared demo DB).
-# Requires repository secrets:
+# Nightly rescore-only pass for pending_scoring / is_fallback items (no feed fetch).
+#
+# Quota reset timing (do NOT hardcode into application logic):
+#   Observed Gemini free-tier error hint example (2026-10): "Please retry in 3h42m12s"
+#   / RetryInfo delay. Soft llm_usage day boundary is UTC (quota_day_timezone).
+#   Free-tier PerDay caps often roll near US Pacific midnight (~07:00–08:00 UTC).
+#   Cron below is 08:30 UTC — after a typical reset window, with a safety margin,
+#   and AFTER the daily ingest at 06:00 UTC so primary quota is not fought mid-day.
+#
+# Requires repository secrets (same as daily ingest):
 #   GEMINI_API_KEY, TURSO_DATABASE_URL, TURSO_AUTH_TOKEN
 
-name: Daily CI Intel Ingest
+name: Retry Pending Scoring
 
 on:
   schedule:
-    # 06:00 UTC every day
-    - cron: "0 6 * * *"
+    # 08:30 UTC daily — see header comment for quota-reset rationale.
+    - cron: "30 8 * * *"
   workflow_dispatch:
 
 concurrency:
-  # Shared with retry_pending.yml so ingest and nightly rescore never overlap.
+  # Never overlap with daily ingest / another retry (atomic DB claims are a second line).
   group: ci-intel-pipeline
   cancel-in-progress: false
 
 jobs:
-  ingest:
+  retry-pending:
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -61,18 +69,11 @@ jobs:
               conn.close()
           PY
 
-      - name: Run daily pipeline
+      - name: Rescore pending / fallback items
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
           TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
-        run: python -m src.pipeline.run_daily --trigger cron
-
-      - name: Upload local SQLite artifact (debug only)
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: ci-intel-db-debug-${{ github.run_id }}
-          path: data/ci_intel.db
-          if-no-files-found: ignore
-          retention-days: 7
+        # Python exits 0 when quota stops the pass (items stay pending for next night).
+        # Hard failure (e.g. unexpected crash after Turso ping) exits non-zero.
+        run: python -m src.pipeline.run_daily --rescore-fallbacks --trigger cron

@@ -280,6 +280,7 @@ class RescoreStats:
     ok: int = 0
     still_fallback: int = 0
     retries_used: int = 0
+    quota_stopped: bool = False
     errors: list[str] = field(default_factory=list)
 
 
@@ -364,6 +365,7 @@ def rescore_fallback_items(
             )
         except DailyQuotaError as exc:
             # Release claimed-but-unscored rows back to pending; do not fail the job.
+            stats.quota_stopped = True
             for row in batch_rows:
                 try:
                     repo.conn.execute(
@@ -535,6 +537,7 @@ def run_rescore_only(
     within_days: int | None = None,
     limit: int | None = None,
     use_fallback_model: bool = False,
+    trigger: RunTrigger = "manual",
 ) -> PipelineResult:
     """CLI path: rescore stored fallbacks / pending_scoring without fetching feeds."""
     model_cfg = load_model_config()
@@ -559,7 +562,7 @@ def run_rescore_only(
     conn = _connect()
     try:
         repo = Repository(conn)
-        run_id = repo.start_run("manual")
+        run_id = repo.start_run(trigger)
         stats = rescore_fallback_items(
             repo,
             model_cfg=model_cfg,
@@ -570,19 +573,24 @@ def run_rescore_only(
             model_id_override=active_model,
             use_fallback_model=use_fallback_model,
         )
-        status = _resolve_status(
-            items_fetched=0,
-            items_new=0,
-            items_scored=stats.ok,
-            items_failed=len(stats.errors),
-            items_fallback=stats.still_fallback,
-            source_errors=0,
-            attempted=stats.attempted,
-        )
+        if stats.quota_stopped:
+            status: RunStatus = "degraded"
+        else:
+            status = _resolve_status(
+                items_fetched=0,
+                items_new=0,
+                items_scored=stats.ok,
+                items_failed=len(stats.errors),
+                items_fallback=stats.still_fallback,
+                source_errors=0,
+                attempted=stats.attempted,
+            )
         msg = (
-            f"Rescored fallbacks: attempted={stats.attempted} ok={stats.ok} "
+            f"Rescored pending/fallbacks: attempted={stats.attempted} ok={stats.ok} "
             f"still_fallback={stats.still_fallback} retries={stats.retries_used}"
         )
+        if stats.quota_stopped:
+            msg += " | daily quota — remaining items stay pending_scoring"
         repo.finish_run(
             run_id,
             status=status,
@@ -1165,6 +1173,7 @@ def main(argv: list[str] | None = None) -> int:
             db_path=args.db,
             limit=args.limit,
             use_fallback_model=args.use_fallback_model,
+            trigger=args.trigger,
         )
         print(
             f"status={result.status} rescored_ok={result.items_rescored_ok} "
@@ -1174,7 +1183,9 @@ def main(argv: list[str] | None = None) -> int:
         )
         if result.message:
             print(result.message)
-        return 1 if result.status in ("failed", "degraded") else 0
+        # Nightly retry: quota/degraded is NOT a failure (items stay pending).
+        # Only hard failures fail the process / GHA job.
+        return 1 if result.status == "failed" else 0
 
     window_hours = None
     if args.backfill_days is not None:
