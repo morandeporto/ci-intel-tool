@@ -397,16 +397,18 @@ def classify_entry_with_fallback(
         )
         return result, False, None, retries_used
     except ClassifyError as exc:
+        retries_used = int(getattr(exc, "retries_used", 0) or 0)
         return (
             fallback_classification(entry, source_kind=source_kind),
             True,
             str(exc),
-            0,
+            retries_used,
         )
     except Exception as exc:  # noqa: BLE001 — provider/network errors → fallback
+        retries_used = int(getattr(exc, "retries_used", 0) or 0)
         return (
             fallback_classification(entry, source_kind=source_kind),
             True,
             str(exc),
-            0,
+            retries_used,
         )

@@ -126,6 +126,8 @@ def call_with_retries(
             if not is_transient(exc):
                 raise
             if attempt >= max_attempts - 1:
+                # WHY: callers that catch and fall back still need retries_used.
+                setattr(exc, "retries_used", attempt)
                 break
             delay = backoff_seconds(
                 attempt,
@@ -136,4 +138,5 @@ def call_with_retries(
             )
             sleep_fn(delay)
     assert last_exc is not None
+    setattr(last_exc, "retries_used", max_attempts - 1)
     raise last_exc

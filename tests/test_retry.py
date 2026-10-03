@@ -88,7 +88,7 @@ def test_call_with_retries_exhausts_on_persistent_503() -> None:
         calls["n"] += 1
         raise RuntimeError("503 overloaded")
 
-    with pytest.raises(RuntimeError, match="503"):
+    with pytest.raises(RuntimeError, match="503") as ei:
         call_with_retries(
             always_503,
             max_attempts=3,
@@ -97,3 +97,4 @@ def test_call_with_retries_exhausts_on_persistent_503() -> None:
             sleep_fn=lambda _d: None,
         )
     assert calls["n"] == 3
+    assert getattr(ei.value, "retries_used") == 2
