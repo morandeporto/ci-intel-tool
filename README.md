@@ -60,29 +60,40 @@ Then restart the app / pipeline. If those vars are unset (or still placeholders)
 
 ## Run the ingestion pipeline
 
-Dry run (fetch + dedupe + print only — **no LLM calls, no DB writes**):
+Flow: concurrent fetch → URL dedupe → **48h freshness** → **relevance gate** →
+**kind-balanced selection** (max **20** / run, **3** / source) → Gemini → SQLite/Turso.
+
+Dry run (fetch + gate + select + print — **no LLM calls, no DB writes**):
 
 ```bash
 python -m src.pipeline.run_daily --dry-run
 ```
 
-Live run (classifies new items with Gemini, writes to SQLite):
+Live run:
 
 ```bash
 python -m src.pipeline.run_daily
 python -m src.pipeline.run_daily --trigger cron
-python -m src.pipeline.run_daily --limit 10
+python -m src.pipeline.run_daily --limit 40          # can raise the cap for a run
+python -m src.pipeline.run_daily --backfill-days 7 --limit 80
 python -m src.pipeline.run_daily --db data/ci_intel.db
 ```
 
 | Flag | Purpose |
 |------|---------|
-| `--dry-run` | Fetch + dedupe only |
+| `--dry-run` | Fetch + freshness + gate + select; no LLM, no writes |
 | `--trigger manual\|cron` | Stored on `pipeline_runs` (default: `manual`) |
-| `--limit N` | Cap new items to classify (also capped by `max_items_per_run` in `config/model.yaml`, currently **30**) |
-| `--db PATH` | Override SQLite path |
+| `--limit N` | Selection/classify cap for this run (overrides `max_items_per_run: 20`) |
+| `--backfill-days N` | Widen freshness window to N days (real ingest, same gate/selection) |
+| `--db PATH` | Force local SQLite path (skips Turso) |
 
-Requires `GEMINI_API_KEY` for live classification.
+Requires `GEMINI_API_KEY` for live classification. Writes to **Turso** when configured, else `data/ci_intel.db`.
+
+### Gate and selection (config-driven)
+
+- **Freshness:** `window_hours: 48` in `config/model.yaml`. Future-dated items ignored; missing dates logged.
+- **Gate:** `gate: "off"` for official/emerging; `gate: "strict"` for industry/community (`config/relevance.yaml` strong keywords; weak alone never pass). Maintenance title patterns excluded for all sources.
+- **Selection:** top 3 per source; reserved slots official 8 / emerging 4 / industry+community 6; unused slots spill; cap-skipped items are **not** stored.
 
 ---
 
@@ -100,32 +111,17 @@ Checks enabled URLs in `config/sources.yaml`. Exit code is non-zero if any enabl
 ## Architecture overview
 
 ```
-config/*.yaml          competitors, sources, weights, model, comparison
+config/*.yaml   competitors, sources, relevance, weights, model, comparison
         │
         ▼
-┌─────────────────┐    ┌──────────┐    ┌─────────────────────┐
-│ RSS/Atom ingest │ →  │  Dedupe  │ →  │ Gemini (Pydantic    │
-│ (httpx+feedparser)│  │ URL+hash │    │ structured dims 1–5)│
-└─────────────────┘    └──────────┘    └──────────┬──────────┘
-                                                   │
-                                                   ▼
-                                       ┌─────────────────────┐
-                                       │ Weighted score in   │
-                                       │ code (weights.yaml) │
-                                       └──────────┬──────────┘
-                                                   │
-                                                   ▼
-                                       ┌─────────────────────┐
-                                       │ SQLite              │
-                                       │ news + dims +       │
-                                       │ feedback + runs     │
-                                       └──────────┬──────────┘
-                                                   │
-                          ┌────────────────────────┼────────────────────────┐
-                          ▼                        ▼                        ▼
-                   Streamlit UI              Service layer            (Future) MCP
-                   Digest / Compare          digest / comparison      search_news, …
-                                             / feedback
+┌──────────────┐  ┌───────┐  ┌──────────┐  ┌──────────┐  ┌─────────────┐
+│ Concurrent   │→ │ Dedupe│→ │ Freshness│→ │ Gate     │→ │ Select      │
+│ RSS fetch    │  │ URL   │  │ 48h      │  │ off/strict│ │ kinds+caps  │
+└──────────────┘  └───────┘  └──────────┘  └──────────┘  └──────┬──────┘
+                                                                 ▼
+                                                    Gemini → weighted score → Turso/SQLite
+                                                                 │
+                                    Streamlit (Digest / Ask / Comparison / Pipeline runs)
 ```
 
 **Built now:** ingestion, freshness window, relevance gate, balanced selection, LLM dimension scoring, code-side weighted total, feedback table + UI buttons, curated comparison matrix, GitHub Actions cron (Turso).
@@ -143,8 +139,9 @@ config/*.yaml          competitors, sources, weights, model, comparison
 | **Turso for shared demo; Postgres for production** | Shared reviewers now; managed Postgres if this were a real product |
 | **Light RAG Ask tab** | Retrieve-from-SQLite + curated comparison matrix → Gemini; max 2 follow-ups per session thread |
 | **Curated `comparison.yaml`** | Claims must be source-linked; never generated from model memory; not auto-updated by news |
-| **JFrog Medium RSS** | Official `jfrog.com/blog/feed/` returned empty (HTTP 202); Medium `@JFrog.com` feed verified working |
-| **Community feeds (Reddit/HN)** | Market perception alongside official vendor blogs |
+| **48h window + gate + balanced selection** | Survives date-only stamps / missed cron; cheap keyword gate for noisy outlets; reserved LLM seats by kind |
+| **Official JFrog blog + research RSS** | Verified feeds; Medium/status disabled once replacements passed |
+| **Emerging + industry coverage** | Chainguard/Socket/Endor/Anchore/Docker + research/standards blogs (verified URLs only) |
 | **Feedback table + UI now; learning later** | Groundwork for a lead-scoring-style loop; automated weight adjustment is Future Work |
 
 Full rationale: [DECISIONS.md](DECISIONS.md).
@@ -175,41 +172,41 @@ Today operators can nudge ranking with weight sliders and record 👍/👎 plus 
 | Slack notifications | Not built |
 | Classification eval suite | Not built (unit tests cover scoring + dedupe) |
 | Read-only MCP server (`search_news`, `get_comparison`, `get_digest`) | Optional bonus — **not built** |
-| Secondary competitors (Cloudsmith, Harness) | Present in config, **`enabled: false`** |
+| Cloudsmith / Harness / emerging vendors | **Enabled** after feed verification (2026-10-03) |
+| CISA advisories / CRA regulation feeds | **Not in** — HTTP 403 / not CRA-specific; **Future Work adapter** |
 | The Register feed | Disabled (bot-challenge HTML to automated clients) |
+
+### Challenges and pitfalls
+
+| Pitfall | What we saw | Mitigation |
+|---------|-------------|------------|
+| Reddit 429 | `r/devops` rate-limits automated clients | Per-source errors are partial; continue other sources; telemetry in Pipeline runs |
+| JFrog blog empty / HTTP 202 | `jfrog.com/blog/feed/` often returns 202 with empty body | Marked `user_agent: browser`; keep research feed; Medium disabled as stale |
+| Browser-like User-Agent | Some hosts reject the honest tool UA | Default UA is identifiable `ci-intel-tool/1.0`; **only** `jfrog_blog` uses browser UA today (listed in YAML). We do **not** bypass 403/challenges |
+| Date-only timestamps | Midnight stamps look “old” vs a 24h morning run | **48h** freshness window |
+| Future-dated status items | Status feeds sometimes post future maintenance windows | Drop `published_at > now` |
+| Huge archives | `snyk.io/blog/feed/` has ~1670 historical items | Parse/normalize **only in-window** entries before selection |
+| Feeds that do not exist | Guessed `/blog/feed` paths 404; IR/CISA 403 | Verify with `scripts/verify_feeds.py`; disable with dated YAML notes |
+| Fallback / silent success | Model outages could look like a green run | `is_fallback` flag; cron fails if **every** selected item falls back |
 
 ### Why not every source type from the brief — and how we'd ship them in production
 
-**Built now (v1):** verified **RSS/Atom only** — blogs, release notes, security research feeds,
-DevOps news, and light community signals. That matches the ingest we already have
-(`src/ingest/rss_fetcher.py` + `scripts/verify_feeds.py`). We do **not** invent mock URLs.
+**Built now (v1):** verified **RSS/Atom only** — official + emerging vendor blogs, security research,
+standards/community, HN/Reddit. We do **not** invent mock URLs.
 
 | Brief source type | v1 status | Why |
 |-------------------|-----------|-----|
-| Official blogs / release notes | **In** | Stable public feeds for core competitors |
-| Security research | **In** | Verified feeds (e.g. GitLab security releases, GitHub security, Project Zero, Unit 42, Sonatype security tag) |
-| DevOps news / community | **In** (partial) | devops.com, HN, Reddit; The Register blocked by bot-challenge |
-| Quarterly financials (JFrog, GitLab) | **Not in** | Public IR “RSS” URLs returned **403 / HTML** to automated clients |
-| Pricing page change detection | **Not in** | Product pricing is HTML, not a feed — needs snapshot + diff |
-| Open job postings | **Not in** | Career boards (Greenhouse etc.) are HTML/APIs, not stable public RSS |
+| Official blogs / release notes | **In** | Core + secondary competitors with verified feeds |
+| Emerging players | **In** | Chainguard, Socket, Endor Labs, Anchore, Docker |
+| Security research / DevOps news | **In** | ReversingLabs, Aikido, StepSecurity, CNCF, OpenSSF, TNS, PyPI, … |
+| Community | **In** (gated) | HN keyword feeds + Reddit; strict keyword gate |
+| Regulation (CISA, EU CRA / SBOM rules) | **Not in** | CISA XML **403**; EU digital-strategy RSS is generic policy noise — needs a dedicated **regulation adapter** |
+| Quarterly financials (JFrog, GitLab) | **Not in** | IR RSS **403** |
+| Pricing / jobs | **Not in** | HTML change-detection / ATS APIs — future adapters |
 
-**Production plan (next ingest adapters — same pipeline after normalize):**
-
-1. **Financial / IR adapter** — Prefer vendor IR APIs or SEC EDGAR filings for public cos.;
-   fall back to authenticated/browser-assisted fetch only if ToS allows; normalize into the
-   same `NormalizedEntry` shape (`category: earnings`). Alert on 10-Q/earnings keywords.
-2. **Pricing change detector** — Scheduled fetch of configured pricing URLs → store content
-   hash / structured fields → emit a synthetic “pricing_changed” item only on diff (low
-   volume, high signal). Treat HTML as untrusted; never paste full pages into prompts.
-3. **Jobs adapter** — Greenhouse/Lever/Ashby APIs (or approved scrapes) filtered by role
-   keywords (security, packaging, AI, sales eng) → strategic hiring signals, rate-limited.
-4. **Hardening for all adapters** — Per-source circuit breaker, robots/ToS checklist,
-   secrets in vault, eval set for classifier categories (`pricing`, `earnings`, `hiring`),
-   and Xray/Curation on the runner image. Comparison matrix stays curated YAML until an
-   analyst promotes a sourced claim — news never auto-rewrites product cells.
-
-Interview line: *“We covered every source type that fits RSS today; the rest are different
-adapters into the same normalize → classify → score path — not more fake feed URLs.”*
+**Production adapter roadmap** (same normalize → classify → score path): IR/EDGAR, CRA/CISA
+regulation monitors, pricing diff, jobs APIs — with circuit breakers and ToS checks. Comparison
+matrix stays curated YAML until an analyst promotes a sourced claim.
 
 ---
 
@@ -226,10 +223,11 @@ The Streamlit app **emulates** a JFrog-like dark aesthetic (navy `#070B19`, gree
 Workflow: [`.github/workflows/daily_ingest.yml`](.github/workflows/daily_ingest.yml)
 
 - Schedule: **06:00 UTC daily** + manual `workflow_dispatch`
-- Runs: `python -m src.pipeline.run_daily --trigger cron`
-- Uploads `data/ci_intel.db` as a workflow artifact (does **not** commit the DB back to git)
+- Pings Turso, then runs `python -m src.pipeline.run_daily --trigger cron` writing to Turso
+- Fails the job if Turso is unreachable or every model call falls back
+- Optional local SQLite artifact upload is **debug-only** (`if-no-files-found: ignore`)
 
-**Required:** repository secret `GEMINI_API_KEY` must be set under *Settings → Secrets and variables → Actions*, or the scheduled job will fail classification.
+**Required repository secrets:** `GEMINI_API_KEY`, `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`.
 
 ---
 
@@ -239,7 +237,8 @@ Workflow: [`.github/workflows/daily_ingest.yml`](.github/workflows/daily_ingest.
 pytest -q
 ```
 
-Critical logic covered: weighted relevance scoring (`tests/test_scoring.py`), deduplication (`tests/test_dedupe.py`), and LLM classification helpers (`tests/test_llm_classify.py`).
+Critical logic covered: weighted scoring, dedupe, freshness window, relevance gate,
+per-source/kind selection, config loading, schema migration, and LLM parse helpers.
 
 ---
 

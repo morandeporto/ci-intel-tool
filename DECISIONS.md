@@ -5,6 +5,139 @@ Maintained as decisions are made (see `.cursorrules`).
 
 ---
 
+## [2026-10-03] Source coverage: competitors, emerging players, industry
+
+**Selected Option:** Tag every source with `kind` (`official_competitor` | `emerging` |
+`industry` | `community`) and ingest only RSS/Atom URLs that pass HTTP verification.
+Enable Chainguard/Socket/Endor/Anchore/Docker as emerging; industry research +
+standards blogs; HN/Reddit as lower-trust community with `gate: strict`. Keep
+regulation (CISA/CRA) and IR as Future Work adapters — they 403 or are not feeds.
+
+**Alternatives Considered:**
+- Fake/mock feed URLs for coverage (rejected: assignment forbids inventing URLs)
+- Scrape HTML for CRA/CISA now (rejected: brittle; needs dedicated adapters)
+- Vendor blogs only (rejected: digest was almost all competitor/JFrog content)
+
+**Rationale:** Simplicity + honesty — broaden coverage inside the working RSS path;
+document adapters for blocked regulation sources without pretending they are feeds.
+
+**How to Explain in an Interview (20–30 Seconds Verbal):**
+> "The digest used to be almost all competitor blogs. I added a source kind model —
+> official, emerging, industry, community — and only turned on feeds I verified live.
+> CISA and IR still 403 us, so those are future adapters into the same pipeline, not
+> invented RSS rows."
+
+**JFrog Product Connection (If applicable):**
+Treating community HN feeds as lower-trust vs official vendor feeds mirrors
+provenance tiers in Xray/Curation — noisy signals stay labeled and gated.
+
+---
+
+## [2026-10-03] Removing the seed database
+
+**Selected Option:** Delete `data/seed.db` / `scripts/seed_db.py` and remove the
+`resolve_db_path` seed fallback. The app always uses Turso when configured, else
+local `data/ci_intel.db`. Empty DB shows a friendly empty state with **Run Now**.
+
+**Alternatives Considered:**
+- Keep seed for offline demos (rejected: fake news undermines trust in a CI tool)
+- Commit a snapshot of real classified rows (rejected: stale + still not live)
+
+**Rationale:** Honesty for reviewers — better an empty real DB than fabricated scores.
+Shared Turso covers multi-reviewer demos without fake data.
+
+**How to Explain in an Interview (20–30 Seconds Verbal):**
+> "I removed the seed DB on purpose. Competitive intel should never show fake news.
+> Reviewers share Turso when configured; locally you get an empty state and Run Now."
+
+**JFrog Product Connection (If applicable):**
+Same spirit as not promoting unscanned packages — do not present untrusted demo
+artifacts as production signal.
+
+---
+
+## [2026-10-03] Selection: per-source cap and balanced slots across kinds
+
+**Selected Option:** After the gate, keep top `max_per_source` (3) per source, then
+fill reserved kind slots (`official_competitor` 8, `emerging` 4,
+`industry_community` 6) with round-robin across sources up to `max_items_per_run`
+(20). Unused reserved slots spill to other kinds. Cap-skipped items are not stored
+so they can compete again inside the 48h window.
+
+**Alternatives Considered:**
+- YAML order + hard `[:20]` (rejected: competitor blogs dominate)
+- Global recency sort only (rejected: one busy vendor consumes the budget)
+- Store cap-skipped as filtered (rejected: blocks re-competition next run)
+
+**Rationale:** Cost + coverage — Gemini spend stays bounded while emerging/industry
+still get reserved seats.
+
+**How to Explain in an Interview (20–30 Seconds Verbal):**
+> "Selection is like a fair queue: three items max per source, reserved seats for
+> official vs emerging vs industry, round-robin inside each bucket, unused seats
+> spill over. Cap-skipped rows are not written so they can win tomorrow."
+
+**JFrog Product Connection (If applicable):**
+Analogous to rate-limiting and fair scheduling of scan/enrichment workers so one
+noisy repository cannot starve the rest.
+
+---
+
+## [2026-10-03] Per-source relevance gate (off for official, strict for industry/community)
+
+**Selected Option:** `gate: "off"` for official competitor and emerging vendor feeds
+(LLM judges relevance). `gate: "strict"` for industry/community: require ≥1 strong
+whole-word keyword from `relevance.yaml`; weak keywords alone never pass. Shared
+`exclude_title_patterns` drop maintenance titles on all sources. Filtered rows are
+stored with `status=filtered` and hidden from the digest UI.
+
+**Alternatives Considered:**
+- Keyword-filter everything (rejected: kills low-volume vendor changelogs)
+- LLM-classify everything then filter (rejected: burns budget on Reddit noise)
+- Drop industry/community entirely (rejected: misses market/environment signal)
+
+**Rationale:** Cost + signal quality — spend Gemini on items that already look
+on-topic for noisy outlets; trust official/emerging volume to be self-selecting.
+
+**How to Explain in an Interview (20–30 Seconds Verbal):**
+> "Official and emerging feeds skip the keyword gate — volume is low and the model
+> decides. Industry and community must hit a strong keyword like SBOM or CVE as a
+> whole word. Weak words like Docker never pass alone. Filtered items stay in the DB
+> for audit but never hit Gemini or the digest."
+
+**JFrog Product Connection (If applicable):**
+Similar to policy gates before expensive deep scans — cheap deterministic filters
+first, then heavier analysis.
+
+---
+
+## [2026-10-03] 48h window instead of 24h
+
+**Selected Option:** Freshness window of **48 hours** (`window_hours` in
+`config/model.yaml`). Ignore future-dated items. Log missing dates; do not crash.
+Dedupe remains by URL. Future improvement: compute the freshness dimension in code
+from `published_at` instead of asking the LLM (noted; not implemented yet).
+
+**Alternatives Considered:**
+- 24h window (rejected: date-only midnight stamps look >24h old on a morning run;
+  one missed cron day loses a full day of news)
+- No window / full archive (rejected: snyk_blog alone has ~1670 historical items)
+- Soft window with LLM freshness only (rejected: still pays to normalize/score junk)
+
+**Rationale:** Reliability + cost — URL dedupe makes a wider window free of
+duplicates; 48h absorbs date-only timestamps and one failed daily run.
+
+**How to Explain in an Interview (20–30 Seconds Verbal):**
+> "We use 48 hours, not 24. Many feeds publish date-only at midnight, so a morning
+> run would drop yesterday's posts under a 24h rule. If cron fails once, a 24h window
+> loses a whole day. URL dedupe means the extra day does not create duplicates."
+
+**JFrog Product Connection (If applicable):**
+Operational resilience similar to retry/backfill windows in artifact indexing —
+prefer a slightly wider catch window over silent data loss.
+
+---
+
 ## [2026-10-02] Expand RSS sources where verified; keep non-feed signals as Future Work
 
 **Selected Option:** Add verified security/release feeds (GitLab releases + security
@@ -68,8 +201,8 @@ A production CI assistant would treat comparison claims like curated catalog met
 ## [2026-10-02] Database: Turso for shared demo; Postgres for real production
 
 **Selected Option (this take-home):** Turso (hosted libSQL / SQLite-compatible) when
-`TURSO_DATABASE_URL` + `TURSO_AUTH_TOKEN` are set; otherwise local SQLite files
-(`data/ci_intel.db` / `data/seed.db`).
+`TURSO_DATABASE_URL` + `TURSO_AUTH_TOKEN` are set; otherwise local SQLite
+(`data/ci_intel.db`). No seed/fake database.
 
 **Selected Option (if this were a real production product):** Managed **PostgreSQL**
 (e.g. AWS RDS, Cloud SQL, or Neon/Supabase Postgres) behind a small service API —
