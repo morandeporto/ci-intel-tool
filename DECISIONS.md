@@ -5,6 +5,82 @@ Maintained as decisions are made (see `.cursorrules`).
 
 ---
 
+## [2026-10-03] UI Run Now limit as config (`ui_run_now_limit`)
+
+**Selected Option:** Cap Streamlit **Run Now** via `ui_run_now_limit` in
+`config/model.yaml` (default **10**). Cron / CLI still use `max_items_per_run` (20)
+unless `--limit` overrides.
+
+**Alternatives Considered:**
+- Hardcode `limit=10` in `app.py` (rejected: invisible to operators)
+- Same cap as cron (rejected: one demo click can exhaust free-tier RPD)
+- No UI ingest button (rejected: live demo requirement)
+
+**Rationale:** Cost/Latency - protect Gemini free-tier headroom during panel demos
+while keeping cron’s fuller daily selection.
+
+**How to Explain in an Interview (20-30 Seconds Verbal):**
+> "Run Now is intentionally cheaper than the nightly job. The limit lives in YAML
+> next to max_items_per_run so we can raise it when quota allows without touching UI
+> code."
+
+**JFrog Product Connection (If applicable):**
+Similar to rate limits / quotas on Artifactory APIs - interactive paths get tighter
+budgets than scheduled batch jobs.
+
+---
+
+## [2026-10-03] Radio navigation instead of st.tabs
+
+**Selected Option:** Horizontal `st.radio` keyed `_ci_main_tab` for Daily Digest /
+Ask / Comparison / Pipeline runs, instead of `st.tabs`.
+
+**Alternatives Considered:**
+- `st.tabs` (rejected: Streamlit resets to the first tab on every rerun, which
+  breaks Ask follow-ups and the two-phase Run Now / toast UX)
+- Query-param deep links (rejected: extra complexity for a take-home)
+
+**Rationale:** UX reliability - pending actions and Ask answers must leave the user
+on the tab they were using after `st.rerun()`.
+
+**How to Explain in an Interview (20-30 Seconds Verbal):**
+> "Streamlit tabs look right but reset on rerun. A keyed radio keeps the active
+> section in session_state, which matters when Run Now or Ask triggers a two-step
+> loader and refresh."
+
+**JFrog Product Connection (If applicable):**
+Not product-specific - same lesson as preferring stable control state over fragile
+UI widgets when the platform remounts on each action.
+
+---
+
+## [2026-10-03] Digest date filter uses ingestion day (Asia/Jerusalem)
+
+**Selected Option:** Daily Digest “News date” filters by the Israel calendar day of
+`ingested_at` (fallback to `published_at` only if ingest is missing). Cards still
+show the article’s **published** time. Default selection is Israel today, else the
+latest day that has items.
+
+**Alternatives Considered:**
+- Filter by `published_at` only (rejected: late UTC ingest / date-only midnight
+  stamps scatter “today’s digest” across calendar days)
+- UTC day boundaries in the UI (rejected: reviewers are in Israel TZ for this demo)
+- Multi-day range picker (rejected: adds clutter; single-day matches “daily digest”)
+
+**Rationale:** Clarity - “what did the system bring in today” is the digest’s job;
+publish time remains on the card for source fidelity.
+
+**How to Explain in an Interview (20-30 Seconds Verbal):**
+> "The filter answers when we ingested the item in Israel local time. The card still
+> shows when the article was published. That split keeps a daily briefing coherent
+> even when feeds use date-only timestamps."
+
+**JFrog Product Connection (If applicable):**
+Similar to separating scan time from component publish time in Xray - operators care
+about when the signal entered the system as well as when the artifact existed.
+
+---
+
 ## [2026-10-03] Scoring rubric v2 + rubric_version column
 
 **Selected Option:** Tighten LLM scoring anchors in `SCORING_CALIBRATION_CURRENT`
@@ -437,6 +513,8 @@ Similar spirit to tunable policy packs that teams adjust without re-scanning eve
 
 ## [2026-10-02] Seed DB committed, runtime DB gitignored
 
+**Superseded by:** [2026-10-03] Removing the seed database
+
 **Selected Option:** Commit `data/seed.db` (built by `scripts/seed_db.py`) for offline
 demos, gitignore `data/ci_intel.db`. UI `resolve_db_path` prefers a non-empty
 runtime DB, then falls back to seed.
@@ -458,25 +536,32 @@ Not directly applicable, mirrors the idea of reproducible build artifacts for de
 
 ---
 
-## [2026-10-02] Model id pinned to gemini-3.8-flash
+## [2026-10-02] Model ids in config (pipeline, fallback, ask)
 
-**Selected Option:** `provider: gemini` and `model_id: gemini-3.8-flash` in
-`config/model.yaml` only - never hardcoded in application logic.
+**Selected Option:** Keep Gemini model **ids** only in `config/model.yaml`:
+`pipeline_model` / `model_id` (primary classifier, e.g. `gemini-3.8-flash`),
+`fallback_model` (quota / `--use-fallback-model`, e.g. `gemini-3.5-flash-lite`),
+`ask_model` (Ask the Digest, e.g. `gemini-3.1-flash-lite`). Single
+`GEMINI_API_KEY`. `provider:` is informational - the SDK path is Gemini-specific
+today; multi-provider abstraction is Future Work.
 
-**Alternatives Considered:** `gemini-2.0-flash` (retired by Google), Pro models
-(billing required), hardcoding the model string in `llm_classify.py` (rejected:
-blocks one-line swaps).
+**Alternatives Considered:** One shared model for pipeline + Ask (rejected: Ask
+competes with cron for the same PerDay bucket), Pro models (billing), hardcoding
+ids in Python (rejected: blocks id swaps), claiming full provider portability
+already (rejected: dishonest - still `google-generativeai`).
 
-**Rationale:** Cost/Latency - Flash free-tier headroom fits a take-home, config
-isolation keeps provider swapping a one-line change plus a different `.env` key.
+**Rationale:** Cost/Latency - separate free-tier RPD pools and RPM spacing per
+model id; YAML still owns which Gemini model each role uses.
 
 **How to Explain in an Interview (20-30 Seconds Verbal):**
-> "The model name lives in YAML. We moved off retired gemini-2.0-flash to
-> gemini-3.8-flash. Swapping providers later is a config change, not a rewrite."
+> "Pipeline, fallback, and Ask each have their own model id in YAML so we can
+> spend a stronger Flash on classification and a lighter one on chat, and fail
+> over when PerDay hits. Swapping Gemini ids is one line; swapping vendors would
+> need a thin provider layer we deliberately deferred."
 
 **JFrog Product Connection (If applicable):**
 Production images depending on `google-generativeai` would be scanned with Xray
-before promotion.
+before promotion; model choice is like picking a scanner policy pack per workload.
 
 ---
 
