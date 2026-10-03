@@ -19,6 +19,7 @@ from pydantic import BaseModel, ValidationError, field_validator
 from src.config_loader import PROJECT_ROOT, load_model_config
 from src.db.models import DIMENSION_NAMES
 from src.ingest.normalize import NormalizedEntry
+from src.process.llm_rate_limit import wait_llm_interval
 from src.process.retry import call_with_retries
 
 # Load .env from project root (explicit path avoids fragile cwd / stdin lookups).
@@ -333,6 +334,8 @@ def classify_entry(
     )
 
     def _once() -> str:
+        # Shared spacing across concurrent workers before each attempt.
+        wait_llm_interval()
         return _gemini_generate(
             key=key,
             model_id=model_id,

@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import logging
 import sys
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -36,6 +37,7 @@ from src.process.llm_classify import (
     ClassificationResult,
     classify_entry_with_fallback,
 )
+from src.process.llm_rate_limit import configure_llm_interval
 from src.process.relevance_gate import evaluate_gate
 from src.process.scoring import weighted_score
 from src.process.selection import select_for_llm
@@ -388,11 +390,44 @@ def run_daily(
                     classify_errors.append(f"{entry.url}: filter persist failed: {exc}")
 
             classified_by_source: dict[str, int] = {}
-            for entry in selected:
+            configure_llm_interval(float(model_cfg.get("llm_min_interval_seconds", 0.5)))
+            llm_workers = max(1, int(model_cfg.get("llm_concurrency", 3)))
+
+            def _classify_one(
+                entry: NormalizedEntry,
+            ) -> tuple[
+                NormalizedEntry,
+                ClassificationResult,
+                bool,
+                str | None,
+                int,
+            ]:
                 kind = str((source_meta.get(entry.source_id) or {}).get("kind") or "")
                 result, used_fallback, err, retries_used = classify_entry_with_fallback(
                     entry, model_config=model_cfg, source_kind=kind
                 )
+                return entry, result, used_fallback, err, retries_used
+
+            classify_outcomes: list[
+                tuple[NormalizedEntry, ClassificationResult, bool, str | None, int]
+            ] = []
+            if selected:
+                with ThreadPoolExecutor(max_workers=min(llm_workers, len(selected))) as pool:
+                    futures = [pool.submit(_classify_one, entry) for entry in selected]
+                    for fut in as_completed(futures):
+                        try:
+                            classify_outcomes.append(fut.result())
+                        except Exception as exc:  # noqa: BLE001
+                            items_failed += 1
+                            classify_errors.append(f"classify worker failed: {exc}")
+
+            # Persist in a stable order (original selection order) for predictable runs.
+            outcome_by_url = {o[0].url: o for o in classify_outcomes}
+            for entry in selected:
+                outcome = outcome_by_url.get(entry.url)
+                if outcome is None:
+                    continue
+                _entry, result, used_fallback, err, retries_used = outcome
                 persist_model_id = (
                     f"{model_id}:fallback" if used_fallback else model_id
                 )
