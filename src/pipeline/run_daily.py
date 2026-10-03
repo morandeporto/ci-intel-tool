@@ -1,33 +1,46 @@
 """Daily competitive-intelligence pipeline orchestration.
 
-Flow: init_db → start_run → fetch → dedupe → classify+score (capped) → persist → finish_run.
+Flow: init_db → start_run → fetch → dedupe → freshness → gate → select →
+classify+score (selected only) → persist → finish_run.
 
 Per-item LLM failures do not abort the run (status becomes partial). Cost is
-guarded by max_items_per_run from config/model.yaml.
+guarded by max_items_per_run / selection caps from config/model.yaml.
 """
 
 from __future__ import annotations
 
 import argparse
+import logging
 import sys
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 from uuid import uuid4
 
-from src.config_loader import DEFAULT_DB_PATH, load_model_config, load_weights
+from src.config_loader import (
+    DEFAULT_DB_PATH,
+    load_model_config,
+    load_relevance_config,
+    load_sources,
+    load_weights,
+)
 from src.db.connection import get_connection, init_db, turso_configured
 from src.db.models import DimensionScores, NewsItem
 from src.db.repository import Repository
 from src.ingest.normalize import NormalizedEntry
 from src.ingest.rss_fetcher import fetch_and_normalize
 from src.process.dedupe import is_duplicate
+from src.process.freshness import filter_by_freshness
 from src.process.llm_classify import (
     ClassificationResult,
     classify_entry_with_fallback,
 )
+from src.process.relevance_gate import evaluate_gate
 from src.process.scoring import weighted_score
+from src.process.selection import select_for_llm
+
+logger = logging.getLogger(__name__)
 
 RunTrigger = Literal["manual", "cron"]
 RunStatus = Literal["success", "partial", "failed"]
@@ -47,10 +60,15 @@ class PipelineResult:
     items_new: int = 0
     items_scored: int = 0
     items_failed: int = 0
+    items_filtered: int = 0
     source_errors: int = 0
     dry_run: bool = False
     message: str = ""
     new_entries: list[NormalizedEntry] = field(default_factory=list)
+
+
+def _source_meta_by_id() -> dict[str, dict[str, Any]]:
+    return {str(s["id"]): s for s in load_sources()}
 
 
 def _filter_entries_to_process(
@@ -94,6 +112,77 @@ def _filter_new_entries_simple(
     return new_items
 
 
+def _apply_freshness_gate_select(
+    new_entries: list[NormalizedEntry],
+    *,
+    model_cfg: dict[str, Any],
+    relevance_cfg: dict[str, Any],
+    source_meta: dict[str, dict[str, Any]],
+    effective_limit: int,
+) -> tuple[
+    list[NormalizedEntry],
+    list[tuple[NormalizedEntry, str]],
+    list[NormalizedEntry],
+]:
+    """Return (selected_for_llm, filtered_with_reason, cap_skipped)."""
+    window_hours = int(model_cfg["window_hours"])
+    max_per_source = int(model_cfg["max_per_source"])
+    reserved = dict(model_cfg["selection"]["reserved_slots"])
+
+    fresh = filter_by_freshness(new_entries, window_hours=window_hours)
+    in_window = fresh.kept
+
+    passed: list[NormalizedEntry] = []
+    filtered: list[tuple[NormalizedEntry, str]] = []
+    for entry in in_window:
+        meta = source_meta.get(entry.source_id) or {}
+        gate = meta.get("gate", "off")
+        if gate is False:
+            gate = "off"
+        decision = evaluate_gate(entry, gate=str(gate), relevance_cfg=relevance_cfg)
+        if decision.passed:
+            passed.append(entry)
+        else:
+            filtered.append((entry, decision.reason or "filtered"))
+
+    selection = select_for_llm(
+        passed,
+        source_meta=source_meta,
+        max_per_source=max_per_source,
+        max_items=effective_limit,
+        reserved_slots=reserved,
+        relevance_cfg=relevance_cfg,
+    )
+    return selection.selected, filtered, selection.cap_skipped
+
+
+def _persist_filtered(
+    repo: Repository,
+    entry: NormalizedEntry,
+    reason: str,
+    *,
+    run_id: str,
+) -> None:
+    item = NewsItem(
+        id=str(uuid4()),
+        title=entry.title,
+        url=entry.url,
+        source_id=entry.source_id,
+        competitor=entry.competitor,
+        published_at=entry.published_at,
+        ingested_at=_utc_now(),
+        summary=None,
+        category=None,
+        raw_excerpt=entry.raw_excerpt,
+        content_hash=entry.content_hash,
+        relevance_score=None,
+        run_id=run_id,
+        status="filtered",
+        filter_reason=reason,
+    )
+    repo.upsert_news_item(item)
+
+
 def _persist_classified(
     repo: Repository,
     entry: NormalizedEntry,
@@ -106,6 +195,8 @@ def _persist_classified(
     score = weighted_score(result.dimension_dict(), weights)
     news_id = str(uuid4())
     now = _utc_now()
+    item_type = getattr(result, "item_type", None)
+    jfrog_implication = getattr(result, "jfrog_implication", None)
     item = NewsItem(
         id=news_id,
         title=entry.title,
@@ -120,6 +211,9 @@ def _persist_classified(
         content_hash=entry.content_hash,
         relevance_score=score,
         run_id=run_id,
+        status="classified",
+        item_type=item_type,
+        jfrog_implication=jfrog_implication,
     )
     dims = DimensionScores(
         jfrog_relevance=result.jfrog_relevance,
@@ -140,16 +234,23 @@ def run_daily(
     db_path: Path | str | None = None,
     limit: int | None = None,
     dry_run: bool = False,
+    window_hours: int | None = None,
 ) -> PipelineResult:
     """Execute one daily ingestion + classification cycle.
 
-    dry_run: fetch + dedupe + print only — no LLM calls and no DB writes.
+    dry_run: fetch + dedupe + freshness + gate + select + print — no LLM, no writes.
+    window_hours: override model.yaml window (used by --backfill-days).
+    limit: when set, raises/sets the selection cap for this run (not clamped down).
     """
     model_cfg = load_model_config()
+    if window_hours is not None:
+        model_cfg = {**model_cfg, "window_hours": int(window_hours)}
     max_per_run = int(model_cfg["max_items_per_run"])
-    # WHY cap: prevents runaway Gemini spend if feeds suddenly flood with items.
-    effective_limit = max_per_run if limit is None else min(limit, max_per_run)
+    # WHY: backfill passes --limit to raise the cap; daily runs use model.yaml default.
+    effective_limit = max_per_run if limit is None else max(1, int(limit))
     model_id = str(model_cfg["model_id"])
+    relevance_cfg = load_relevance_config()
+    source_meta = _source_meta_by_id()
     use_turso = turso_configured() and db_path is None
     path = None if use_turso else (Path(db_path) if db_path else DEFAULT_DB_PATH)
 
@@ -158,68 +259,17 @@ def run_daily(
     source_errors = len(fetch_result.errors)
 
     if dry_run:
-        # Dry-run still needs existing DB state for realistic dedupe if present,
-        # but never writes and never calls the LLM.
-        existing_urls: set[str] = set()
-        existing_hashes: set[str] = set()
-        dry_repo: Repository | None = None
-        try:
-            if use_turso:
-                conn = get_connection()
-                try:
-                    dry_repo = Repository(conn)
-                    existing_urls = dry_repo.existing_urls()
-                    existing_hashes = dry_repo.existing_content_hashes()
-                finally:
-                    try:
-                        conn.close()
-                    except Exception:
-                        pass
-            elif path is not None and path.exists():
-                with get_connection(path) as conn:
-                    dry_repo = Repository(conn)
-                    existing_urls = dry_repo.existing_urls()
-                    existing_hashes = dry_repo.existing_content_hashes()
-        except Exception:
-            pass
-
-        if dry_repo is not None:
-            new_entries = _filter_entries_to_process(dry_repo, fetch_result.entries)
-        else:
-            new_entries = _filter_new_entries_simple(
-                fetch_result.entries, existing_urls, existing_hashes
-            )
-        to_process = new_entries[:effective_limit]
-        print(
-            f"[dry-run] fetched={items_fetched} new={len(new_entries)} "
-            f"would_classify={len(to_process)} source_errors={source_errors} "
-            f"limit={effective_limit}"
-        )
-        if fetch_result.errors:
-            print(f"[dry-run] source errors ({source_errors}):")
-            for err in fetch_result.errors[:10]:
-                print(f"  - {err.source_id}: {err.message}")
-        for entry in to_process:
-            print(f"  [{entry.competitor}/{entry.source_id}] {entry.title}")
-            print(f"    {entry.url}")
-
-        if not fetch_result.entries and source_errors:
-            status: RunStatus = "failed"
-        elif source_errors:
-            status = "partial"
-        else:
-            status = "success"
-
-        return PipelineResult(
-            status=status,
-            run_id=None,
+        return _run_dry(
+            fetch_result_entries=fetch_result.entries,
+            fetch_errors=fetch_result.errors,
             items_fetched=items_fetched,
-            items_new=len(new_entries),
-            items_scored=0,
             source_errors=source_errors,
-            dry_run=True,
-            message="Dry run complete (no LLM, no DB writes).",
-            new_entries=to_process,
+            model_cfg=model_cfg,
+            relevance_cfg=relevance_cfg,
+            source_meta=source_meta,
+            effective_limit=effective_limit,
+            use_turso=use_turso,
+            path=path,
         )
 
     if use_turso:
@@ -232,6 +282,7 @@ def run_daily(
     items_scored = 0
     items_failed = 0
     items_fallback = 0
+    items_filtered = 0
     classify_errors: list[str] = []
 
     def _connect():
@@ -244,9 +295,23 @@ def run_daily(
             run_id = repo.start_run(trigger)
 
             new_entries = _filter_entries_to_process(repo, fetch_result.entries)
-            to_process = new_entries[:effective_limit]
+            selected, filtered, _cap_skipped = _apply_freshness_gate_select(
+                new_entries,
+                model_cfg=model_cfg,
+                relevance_cfg=relevance_cfg,
+                source_meta=source_meta,
+                effective_limit=effective_limit,
+            )
 
-            for entry in to_process:
+            for entry, reason in filtered:
+                try:
+                    _persist_filtered(repo, entry, reason, run_id=run_id)
+                    items_filtered += 1
+                except Exception as exc:  # noqa: BLE001
+                    items_failed += 1
+                    classify_errors.append(f"{entry.url}: filter persist failed: {exc}")
+
+            for entry in selected:
                 result, used_fallback, err = classify_entry_with_fallback(
                     entry, model_config=model_cfg
                 )
@@ -279,7 +344,7 @@ def run_daily(
                 items_failed=items_failed,
                 items_fallback=items_fallback,
                 source_errors=source_errors,
-                attempted=len(to_process),
+                attempted=len(selected),
             )
             error_message = None
             if items_failed and classify_errors:
@@ -297,7 +362,7 @@ def run_daily(
                         else ""
                     )
                 )
-            elif items_new == 0 and items_scored == 0 and attempted == 0:
+            elif len(new_entries) == 0 and items_scored == 0 and len(selected) == 0:
                 error_message = (
                     "No new articles to ingest — everything in the feed is already in the digest."
                 )
@@ -320,10 +385,11 @@ def run_daily(
                 items_new=len(new_entries),
                 items_scored=items_scored,
                 items_failed=items_failed,
+                items_filtered=items_filtered,
                 source_errors=source_errors,
                 dry_run=False,
                 message=error_message or "Pipeline completed.",
-                new_entries=to_process,
+                new_entries=selected,
             )
         finally:
             try:
@@ -357,9 +423,108 @@ def run_daily(
             items_fetched=items_fetched,
             items_scored=items_scored,
             items_failed=items_failed,
+            items_filtered=items_filtered,
             source_errors=source_errors,
             message=message,
         )
+
+
+def _run_dry(
+    *,
+    fetch_result_entries: list[NormalizedEntry],
+    fetch_errors: list[Any],
+    items_fetched: int,
+    source_errors: int,
+    model_cfg: dict[str, Any],
+    relevance_cfg: dict[str, Any],
+    source_meta: dict[str, dict[str, Any]],
+    effective_limit: int,
+    use_turso: bool,
+    path: Path | None,
+) -> PipelineResult:
+    """Fetch + dedupe + freshness + gate + select + print; keep DB conn open until done."""
+    existing_urls: set[str] = set()
+    existing_hashes: set[str] = set()
+    dry_repo: Repository | None = None
+    conn: Any | None = None
+    try:
+        if use_turso:
+            conn = get_connection()
+            dry_repo = Repository(conn)
+            existing_urls = dry_repo.existing_urls()
+            existing_hashes = dry_repo.existing_content_hashes()
+        elif path is not None and path.exists():
+            conn = get_connection(path)
+            dry_repo = Repository(conn)
+            existing_urls = dry_repo.existing_urls()
+            existing_hashes = dry_repo.existing_content_hashes()
+
+        if dry_repo is not None:
+            new_entries = _filter_entries_to_process(dry_repo, fetch_result_entries)
+        else:
+            new_entries = _filter_new_entries_simple(
+                fetch_result_entries, existing_urls, existing_hashes
+            )
+
+        selected, filtered, cap_skipped = _apply_freshness_gate_select(
+            new_entries,
+            model_cfg=model_cfg,
+            relevance_cfg=relevance_cfg,
+            source_meta=source_meta,
+            effective_limit=effective_limit,
+        )
+
+        print(
+            f"[dry-run] fetched={items_fetched} new={len(new_entries)} "
+            f"filtered={len(filtered)} cap_skipped={len(cap_skipped)} "
+            f"would_classify={len(selected)} source_errors={source_errors} "
+            f"limit={effective_limit} window_hours={model_cfg['window_hours']}"
+        )
+        if fetch_errors:
+            print(f"[dry-run] source errors ({source_errors}):")
+            for err in fetch_errors[:10]:
+                print(f"  - {err.source_id}: {err.message}")
+        for entry in selected:
+            print(f"  [{entry.competitor}/{entry.source_id}] {entry.title}")
+            print(f"    {entry.url}")
+
+        if not fetch_result_entries and source_errors:
+            status: RunStatus = "failed"
+        elif source_errors:
+            status = "partial"
+        else:
+            status = "success"
+
+        return PipelineResult(
+            status=status,
+            run_id=None,
+            items_fetched=items_fetched,
+            items_new=len(new_entries),
+            items_scored=0,
+            items_filtered=len(filtered),
+            source_errors=source_errors,
+            dry_run=True,
+            message="Dry run complete (no LLM, no DB writes).",
+            new_entries=selected,
+        )
+    except Exception as exc:  # noqa: BLE001
+        # Surface Turso/connectivity failures instead of panicking after close.
+        logger.exception("Dry-run failed")
+        return PipelineResult(
+            status="failed",
+            run_id=None,
+            items_fetched=items_fetched,
+            source_errors=source_errors,
+            dry_run=True,
+            message=f"Dry run failed: {exc}",
+        )
+    finally:
+        # WHY: closing before selection reused a dead Turso handle (panic in --dry-run).
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
 
 
 def _resolve_status(
@@ -408,27 +573,41 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "--limit",
         type=int,
         default=None,
-        help="Max new items to classify (also capped by model.yaml max_items_per_run).",
+        help="Selection/classify cap for this run (overrides max_items_per_run; can raise it).",
     )
     parser.add_argument(
         "--dry-run",
         action="store_true",
-        help="Fetch + dedupe + print only; no LLM calls and no DB writes.",
+        help="Fetch + dedupe + freshness + gate + select + print; no LLM, no DB writes.",
+    )
+    parser.add_argument(
+        "--backfill-days",
+        type=int,
+        default=None,
+        help="Widen the freshness window to N days for a real backfill ingest.",
     )
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     args = build_arg_parser().parse_args(argv)
+    window_hours = None
+    if args.backfill_days is not None:
+        if args.backfill_days < 1:
+            print("--backfill-days must be >= 1", file=sys.stderr)
+            return 2
+        window_hours = int(args.backfill_days) * 24
     result = run_daily(
         trigger=args.trigger,
         db_path=args.db,
         limit=args.limit,
         dry_run=args.dry_run,
+        window_hours=window_hours,
     )
     print(
         f"status={result.status} fetched={result.items_fetched} "
         f"new={result.items_new} scored={result.items_scored} "
+        f"filtered={result.items_filtered} "
         f"failed={result.items_failed} source_errors={result.source_errors}"
         + (f" run_id={result.run_id}" if result.run_id else "")
     )

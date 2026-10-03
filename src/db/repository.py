@@ -15,11 +15,13 @@ from src.db.models import DIMENSION_NAMES, DimensionScores, NewsItem
 NEWS_WITH_SCORES_SQL = """
     SELECT n.id, n.title, n.url, n.source_id, n.competitor, n.published_at,
            n.ingested_at, n.summary, n.category, n.raw_excerpt, n.content_hash,
-           n.relevance_score, n.run_id,
+           n.relevance_score, n.run_id, n.status, n.filter_reason,
+           n.item_type, n.jfrog_implication,
            d.jfrog_relevance, d.competitor_signal, d.strategic_impact,
            d.freshness, d.market_visibility, d.model_id, d.scored_at
     FROM news_items n
     LEFT JOIN dimension_scores d ON d.news_item_id = n.id
+    WHERE COALESCE(n.status, 'classified') != 'filtered'
     ORDER BY (n.relevance_score IS NULL), n.relevance_score DESC, n.ingested_at DESC
 """
 
@@ -175,7 +177,8 @@ class Repository:
                 UPDATE news_items SET
                     title = ?, source_id = ?, competitor = ?, published_at = ?,
                     ingested_at = ?, summary = ?, category = ?, raw_excerpt = ?,
-                    content_hash = ?, relevance_score = ?, run_id = ?
+                    content_hash = ?, relevance_score = ?, run_id = ?,
+                    status = ?, filter_reason = ?, item_type = ?, jfrog_implication = ?
                 WHERE url = ?
                 """,
                 (
@@ -190,6 +193,10 @@ class Repository:
                     item.content_hash,
                     item.relevance_score,
                     item.run_id,
+                    item.status,
+                    item.filter_reason,
+                    item.item_type,
+                    item.jfrog_implication,
                     item.url,
                 ),
             )
@@ -199,8 +206,9 @@ class Repository:
                 """
                 INSERT INTO news_items (
                     id, title, url, source_id, competitor, published_at, ingested_at,
-                    summary, category, raw_excerpt, content_hash, relevance_score, run_id
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    summary, category, raw_excerpt, content_hash, relevance_score, run_id,
+                    status, filter_reason, item_type, jfrog_implication
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     item.id,
@@ -216,6 +224,10 @@ class Repository:
                     item.content_hash,
                     item.relevance_score,
                     item.run_id,
+                    item.status,
+                    item.filter_reason,
+                    item.item_type,
+                    item.jfrog_implication,
                 ),
             )
         self.conn.commit()
@@ -262,7 +274,8 @@ class Repository:
             """
             SELECT n.id, n.title, n.url, n.source_id, n.competitor, n.published_at,
                    n.ingested_at, n.summary, n.category, n.raw_excerpt, n.content_hash,
-                   n.relevance_score, n.run_id,
+                   n.relevance_score, n.run_id, n.status, n.filter_reason,
+                   n.item_type, n.jfrog_implication,
                    d.jfrog_relevance, d.competitor_signal, d.strategic_impact,
                    d.freshness, d.market_visibility, d.model_id, d.scored_at
             FROM news_items n

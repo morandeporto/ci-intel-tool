@@ -142,6 +142,14 @@ def _apply_schema(conn: Any, schema_sql: str) -> None:
     conn.commit()
 
 
+def _apply_schema_and_migrate(conn: Any, schema_sql: str) -> None:
+    """Create base tables then apply idempotent column/table migrations."""
+    from src.db.migrate import migrate_schema
+
+    _apply_schema(conn, schema_sql)
+    migrate_schema(conn)
+
+
 def init_db(db_path: Path | str | None = None, schema_path: Path | None = None) -> Path | str:
     """Create tables from schema.sql. Returns local path or 'turso' marker.
 
@@ -156,13 +164,13 @@ def init_db(db_path: Path | str | None = None, schema_path: Path | None = None) 
     if db_path is not None:
         path = Path(db_path)
         with get_connection(path) as conn:
-            _apply_schema(conn, sql)
+            _apply_schema_and_migrate(conn, sql)
         return path
 
     if turso_configured():
         conn = _turso_connection()
         try:
-            _apply_schema(conn, sql)
+            _apply_schema_and_migrate(conn, sql)
         finally:
             try:
                 conn.close()
@@ -172,7 +180,7 @@ def init_db(db_path: Path | str | None = None, schema_path: Path | None = None) 
 
     path = DEFAULT_DB_PATH
     with get_connection(path) as conn:
-        _apply_schema(conn, sql)
+        _apply_schema_and_migrate(conn, sql)
     return path
 
 

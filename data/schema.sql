@@ -27,12 +27,19 @@ CREATE TABLE IF NOT EXISTS news_items (
     content_hash TEXT NOT NULL,
     relevance_score REAL,
     run_id TEXT,
+    -- classified | filtered (gate rejects are stored but hidden from the digest UI)
+    status TEXT NOT NULL DEFAULT 'classified',
+    filter_reason TEXT,
+    -- LLM fields: competitor | emerging | industry
+    item_type TEXT,
+    jfrog_implication TEXT,
     FOREIGN KEY (run_id) REFERENCES pipeline_runs(id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_news_relevance ON news_items(relevance_score DESC);
 CREATE INDEX IF NOT EXISTS idx_news_content_hash ON news_items(content_hash);
 CREATE INDEX IF NOT EXISTS idx_news_competitor ON news_items(competitor);
+CREATE INDEX IF NOT EXISTS idx_news_status ON news_items(status);
 
 CREATE TABLE IF NOT EXISTS dimension_scores (
     news_item_id TEXT PRIMARY KEY,
@@ -64,3 +71,22 @@ CREATE TABLE IF NOT EXISTS app_settings (
     value TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
+
+-- Per-source telemetry for one pipeline run (diagnose fetch/gate/selection failures).
+CREATE TABLE IF NOT EXISTS source_run_stats (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id TEXT NOT NULL,
+    source_id TEXT NOT NULL,
+    http_status TEXT,
+    fetched INTEGER NOT NULL DEFAULT 0,
+    in_window INTEGER NOT NULL DEFAULT 0,
+    new INTEGER NOT NULL DEFAULT 0,
+    passed_gate INTEGER NOT NULL DEFAULT 0,
+    selected INTEGER NOT NULL DEFAULT 0,
+    classified INTEGER NOT NULL DEFAULT 0,
+    error TEXT,
+    duration_ms INTEGER,
+    FOREIGN KEY (run_id) REFERENCES pipeline_runs(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_source_run_stats_run ON source_run_stats(run_id);

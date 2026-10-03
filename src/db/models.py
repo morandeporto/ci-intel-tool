@@ -66,3 +66,7 @@ class NewsItem:
     content_hash: str
     relevance_score: float | None
     run_id: str | None
+    status: str = "classified"
+    filter_reason: str | None = None
+    item_type: str | None = None
+    jfrog_implication: str | None = None
