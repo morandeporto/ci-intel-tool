@@ -19,6 +19,7 @@ def test_model_config_has_window_and_selection_slots() -> None:
     assert cfg["max_per_source"] == 3
     assert cfg["fetch_timeout_seconds"] == 15
     assert cfg["fetch_concurrency"] == 8
+    assert cfg["batch_size"] == 5
     reserved = cfg["selection"]["reserved_slots"]
     assert reserved["official_competitor"] == 8
     assert reserved["emerging"] == 4

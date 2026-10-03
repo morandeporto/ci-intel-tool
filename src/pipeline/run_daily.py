@@ -35,6 +35,8 @@ from src.process.dedupe import is_duplicate
 from src.process.freshness import filter_by_freshness
 from src.process.llm_classify import (
     ClassificationResult,
+    chunk_entries,
+    classify_entries_batch_with_fallback,
     classify_entry_with_fallback,
 )
 from src.process.llm_rate_limit import configure_llm_interval
@@ -580,71 +582,55 @@ def run_daily(
 
             classified_by_source: dict[str, int] = {}
             configure_llm_interval(float(model_cfg.get("llm_min_interval_seconds", 0.5)))
-            llm_workers = max(1, int(model_cfg.get("llm_concurrency", 3)))
+            batch_size = max(1, int(model_cfg.get("batch_size", 5)))
+            source_kinds = {
+                sid: str(meta.get("kind") or "")
+                for sid, meta in source_meta.items()
+            }
 
-            def _classify_one(
-                entry: NormalizedEntry,
-            ) -> tuple[
-                NormalizedEntry,
-                ClassificationResult,
-                bool,
-                str | None,
-                int,
-            ]:
-                kind = str((source_meta.get(entry.source_id) or {}).get("kind") or "")
-                result, used_fallback, err, retries_used = classify_entry_with_fallback(
-                    entry, model_config=model_cfg, source_kind=kind
-                )
-                return entry, result, used_fallback, err, retries_used
-
-            classify_outcomes: list[
-                tuple[NormalizedEntry, ClassificationResult, bool, str | None, int]
-            ] = []
-            if selected:
-                with ThreadPoolExecutor(max_workers=min(llm_workers, len(selected))) as pool:
-                    futures = [pool.submit(_classify_one, entry) for entry in selected]
-                    for fut in as_completed(futures):
-                        try:
-                            classify_outcomes.append(fut.result())
-                        except Exception as exc:  # noqa: BLE001
-                            items_failed += 1
-                            classify_errors.append(f"classify worker failed: {exc}")
-
-            # Persist in a stable order (original selection order) for predictable runs.
-            outcome_by_url = {o[0].url: o for o in classify_outcomes}
-            for entry in selected:
-                outcome = outcome_by_url.get(entry.url)
-                if outcome is None:
-                    continue
-                _entry, result, used_fallback, err, retries_used = outcome
-                persist_model_id = (
-                    f"{model_id}:fallback" if used_fallback else model_id
-                )
+            # Batched classification (one Gemini call per chunk). Missing/invalid
+            # ids are retried individually inside classify_entries_batch_with_fallback.
+            for batch in chunk_entries(selected, batch_size):
                 try:
-                    _persist_classified(
-                        repo,
-                        entry,
-                        result,
-                        weights=weights,
-                        model_id=persist_model_id,
-                        run_id=run_id,
-                        is_fallback=used_fallback,
+                    batch_outcomes = classify_entries_batch_with_fallback(
+                        batch,
+                        model_config=model_cfg,
+                        source_kinds=source_kinds,
                     )
-                    items_scored += 1
-                    retries_used_total += int(retries_used)
-                    classified_by_source[entry.source_id] = (
-                        classified_by_source.get(entry.source_id, 0) + 1
-                    )
-                    if used_fallback:
-                        items_fallback += 1
-                        if err:
-                            classify_errors.append(f"{entry.url}: {err}")
-                    else:
-                        items_classified_ok += 1
-                except Exception as exc:  # noqa: BLE001 — persist must not kill the run
-                    items_failed += 1
-                    classify_errors.append(f"{entry.url}: persist failed: {exc}")
+                except Exception as exc:  # noqa: BLE001
+                    items_failed += len(batch)
+                    classify_errors.append(f"classify batch failed: {exc}")
                     continue
+
+                for entry, result, used_fallback, err, retries_used in batch_outcomes:
+                    persist_model_id = (
+                        f"{model_id}:fallback" if used_fallback else model_id
+                    )
+                    try:
+                        _persist_classified(
+                            repo,
+                            entry,
+                            result,
+                            weights=weights,
+                            model_id=persist_model_id,
+                            run_id=run_id,
+                            is_fallback=used_fallback,
+                        )
+                        items_scored += 1
+                        retries_used_total += int(retries_used)
+                        classified_by_source[entry.source_id] = (
+                            classified_by_source.get(entry.source_id, 0) + 1
+                        )
+                        if used_fallback:
+                            items_fallback += 1
+                            if err:
+                                classify_errors.append(f"{entry.url}: {err}")
+                        else:
+                            items_classified_ok += 1
+                    except Exception as exc:  # noqa: BLE001
+                        items_failed += 1
+                        classify_errors.append(f"{entry.url}: persist failed: {exc}")
+                        continue
 
             try:
                 repo.save_source_run_stats(

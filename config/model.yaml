@@ -15,13 +15,16 @@ fetch_timeout_seconds: 15
 # Concurrent feed fetches (ThreadPoolExecutor workers).
 fetch_concurrency: 8
 max_excerpt_chars: 4000
+# Items per Gemini classify call (JSON array keyed by item id).
+batch_size: 5
 rate_limit_sleep_seconds: 1.0
 # LLM reliability: retry transient 503/429/timeouts (not other 4xx).
 llm_max_attempts: 3
 llm_retry_base_seconds: 1.0
 llm_retry_max_seconds: 20.0
 # Cap concurrent Gemini calls; keep burst small.
-llm_concurrency: 3
+# With batching, prefer sequential batches (concurrency 1) unless raised.
+llm_concurrency: 1
 # Minimum spacing between Gemini calls across workers (seconds).
 llm_min_interval_seconds: 0.5
 # Auto-heal fallbacks from the last N days at end of each run / --rescore-fallbacks.
