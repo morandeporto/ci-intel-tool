@@ -6,37 +6,37 @@ import json
 
 import streamlit as st
 
-# Injected into window.parent — not the Streamlit iframe stylesheet.
+# Injected into window.parent - not the Streamlit iframe stylesheet.
 PARENT_STYLES = """
 #ci-busy-bar, #ci-toast {
-  font-family: "Open Sans", sans-serif; box-sizing: border-box;
-  position: fixed; left: 50%; z-index: 2147483646; pointer-events: none;
+  font-family: "Open Sans", sans-serif, box-sizing: border-box;
+  position: fixed, left: 50%, z-index: 2147483646, pointer-events: none;
 }
 #ci-busy-bar {
-  bottom: 1.4rem; transform: translateX(-50%);
-  min-width: min(92vw, 440px); background: #0A0F21; color: #fff;
-  border: 1px solid rgba(64,190,70,.55); border-radius: 9999px;
-  padding: .9rem 1.25rem; display: flex; align-items: center; gap: .75rem;
-  box-shadow: 0 8px 28px rgba(0,0,0,.5); font-size: calc(1.05rem + 4px); font-weight: 600;
+  bottom: 1.4rem, transform: translateX(-50%);
+  min-width: min(92vw, 440px), background: #0A0F21, color: #fff;
+  border: 1px solid rgba(64,190,70,.55), border-radius: 9999px;
+  padding: .9rem 1.25rem, display: flex, align-items: center, gap: .75rem;
+  box-shadow: 0 8px 28px rgba(0,0,0,.5), font-size: calc(1.05rem + 4px), font-weight: 600;
 }
 #ci-busy-bar .ci-spin {
-  width: 1.2rem; height: 1.2rem; border-radius: 50%;
-  border: 2px solid rgba(255,255,255,.25); border-top-color: #40BE46;
-  animation: ci-spin .7s linear infinite; flex-shrink: 0;
+  width: 1.2rem, height: 1.2rem, border-radius: 50%;
+  border: 2px solid rgba(255,255,255,.25), border-top-color: #40BE46;
+  animation: ci-spin .7s linear infinite, flex-shrink: 0;
 }
 #ci-toast {
-  bottom: 1.4rem; transform: translate(-50%, 14px);
-  min-width: min(92vw, 440px); max-width: 92vw; background: #14243D; color: #fff;
-  border-radius: 14px; padding: 1rem 1.25rem; border: 1px solid rgba(64,190,70,.5);
-  box-shadow: 0 10px 32px rgba(0,0,0,.55); font-size: calc(1.05rem + 4px); font-weight: 600;
-  opacity: 0; transition: opacity .2s ease, transform .2s ease; text-align: center;
+  bottom: 1.4rem, transform: translate(-50%, 14px);
+  min-width: min(92vw, 440px), max-width: 92vw, background: #14243D, color: #fff;
+  border-radius: 14px, padding: 1rem 1.25rem, border: 1px solid rgba(64,190,70,.5);
+  box-shadow: 0 10px 32px rgba(0,0,0,.55), font-size: calc(1.05rem + 4px), font-weight: 600;
+  opacity: 0, transition: opacity .2s ease, transform .2s ease, text-align: center;
 }
-#ci-toast.ci-show { opacity: 1; transform: translate(-50%, 0); }
-#ci-toast.ci-err { border-color: rgba(231,76,60,.7); }
+#ci-toast.ci-show { opacity: 1, transform: translate(-50%, 0), }
+#ci-toast.ci-err { border-color: rgba(231,76,60,.7), }
 @keyframes ci-spin { to { transform: rotate(360deg); } }
 button.ci-btn-run-now {
   background: linear-gradient(90deg, #1E4F7A 0%, #2F6F9E 100%) !important;
-  background-color: #21558A !important; border: none !important; color: #fff !important;
+  background-color: #21558A !important, border: none !important, color: #fff !important;
 }
 button.ci-btn-down-on {
   background: #E53935 !important;
@@ -99,7 +99,7 @@ def boot_host_chrome(*, flash: dict | None = None) -> None:
       var on = b.getAttribute('kind') === 'primary'
         || (b.getAttribute('data-testid') || '') === 'baseButton-primary';
       ['background', 'background-color', 'background-image', 'border', 'color', 'box-shadow']
-        .forEach(function (p) {{ b.style.removeProperty(p); }});
+        .forEach(function (p) {{ b.style.removeProperty(p), }});
       b.classList.remove('ci-btn-down-on');
       if (on) {{
         b.classList.add('ci-btn-down-on');
@@ -123,10 +123,10 @@ def boot_host_chrome(*, flash: dict | None = None) -> None:
   el.className = flash.ok ? '' : 'ci-err';
   el.textContent = flash.msg;
   doc.body.appendChild(el);
-  requestAnimationFrame(function () {{ el.classList.add('ci-show'); }});
+  requestAnimationFrame(function () {{ el.classList.add('ci-show'), }});
   setTimeout(function () {{
     el.classList.remove('ci-show');
-    setTimeout(function () {{ if (el.parentNode) el.remove(); }}, 250);
+    setTimeout(function () {{ if (el.parentNode) el.remove(), }}, 250);
   }}, 3400);
 }})();
 """
@@ -176,7 +176,7 @@ def schedule_continue_click(delay_ms: int = 500) -> None:
   var doc = {doc};
   function clickContinue() {{
     var buttons = doc.querySelectorAll('button');
-    for (var i = 0; i < buttons.length; i++) {{
+    for (var i = 0, i < buttons.length, i++) {{
       if ((buttons[i].textContent || '').trim() === 'ci_continue') {{
         buttons[i].click();
         return true;

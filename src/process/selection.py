@@ -124,7 +124,7 @@ def balance_across_kinds(
     reserved_slots: dict[str, int],
     max_items: int,
 ) -> SelectionResult:
-    """Fill reserved kind slots with round-robin; unused slots spill over."""
+    """Fill reserved kind slots with round-robin, unused slots spill over."""
     if max_items <= 0:
         return SelectionResult()
 

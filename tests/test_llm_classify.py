@@ -250,7 +250,7 @@ def test_batch_with_fallback_retries_missing_individually(
     ids = [batch_item_id(e) for e in entries]
 
     def _fake_batch(ents, **_k):
-        # Only first item accepted; others missing.
+        # Only first item accepted, others missing.
         return {ids[0]: ClassificationResult.model_validate(VALID_PAYLOAD)}, ids[1:], 0
 
     individual_calls: list[str] = []

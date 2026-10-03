@@ -65,10 +65,10 @@ def _inject_css() -> None:
 
 def _weight_sum_status(total: float) -> tuple[str, str]:
     if total > 1.0 + WEIGHT_SUM_TOLERANCE:
-        return ("error", f"Sum {total:.2f} — over 1.00. Lower a slider.")
+        return ("error", f"Sum {total:.2f} - over 1.00. Lower a slider.")
     if abs(total - 1.0) <= WEIGHT_SUM_TOLERANCE:
-        return ("ok", f"Sum {total:.2f} / 1.00 — ready to save.")
-    return ("warn", f"Sum {total:.2f} / 1.00 — need {1.0 - total:.2f} more.")
+        return ("ok", f"Sum {total:.2f} / 1.00 - ready to save.")
+    return ("warn", f"Sum {total:.2f} / 1.00 - need {1.0 - total:.2f} more.")
 
 
 def _try_run_pipeline(db_path: Path | None) -> tuple[bool, str]:
@@ -172,7 +172,7 @@ def _weight_editor_fragment(repo: Repository) -> None:
 
 
 def _render_kpis(kpis: dict) -> None:
-    avg = f"{kpis['avg_score']:.2f}" if kpis["avg_score"] is not None else "—"
+    avg = f"{kpis['avg_score']:.2f}" if kpis["avg_score"] is not None else "-"
     cards = [
         (str(kpis["item_count"]), "News items", False),
         (avg, "Avg relevance", True),
@@ -213,7 +213,7 @@ def _render_feedback_row(repo: Repository, item: dict) -> None:
             )
     with b2:
         down_selected = saved_vote == "down" or is_editing_down
-        # Marker scopes red styling to this column; primary = selected (red), secondary = idle.
+        # Marker scopes red styling to this column, primary = selected (red), secondary = idle.
         st.markdown('<span class="ci-fb-down-slot">down</span>', unsafe_allow_html=True)
         if st.button(
             "👎",
@@ -231,7 +231,7 @@ def _render_feedback_row(repo: Repository, item: dict) -> None:
             st.caption("Saved feedback: 👍 relevant (shared)")
         elif saved_vote == "down" and not is_editing_down:
             note = saved_rationale or "No rationale provided"
-            st.caption(f"Saved feedback: 👎 not relevant — {note}")
+            st.caption(f"Saved feedback: 👎 not relevant - {note}")
             if st.button("Edit rationale", key=f"edit_fb_{item_id}"):
                 st.session_state[pending_key] = item_id
                 st.session_state[f"rationale_{item_id}"] = saved_rationale
@@ -270,7 +270,7 @@ DIGEST_SORT_LABELS = {
 
 
 def _on_digest_sort_change() -> None:
-    # Callback runs before widgets render — safe to reset both keys.
+    # Callback runs before widgets render - safe to reset both keys.
     st.session_state.digest_page = 1
     st.session_state.digest_page_select = 1
 
@@ -295,7 +295,7 @@ NEWS_DATE_LOOKBACK_DAYS = 90
 def _news_date_bounds(all_items: list) -> tuple[date, date]:
     """Calendar range that always allows picking days other than today.
 
-    Streamlit locks ``date_input`` when min_value == max_value; keep a lookback
+    Streamlit locks ``date_input`` when min_value == max_value, keep a lookback
     window even when every item was ingested on the same Israel calendar day.
     """
     today = israel_today()
@@ -312,7 +312,7 @@ def _latest_day_with_items(all_items: list) -> date | None:
 
 
 def _render_news_date_filter(all_items: list) -> tuple[list, str | None]:
-    """Single-day calendar picker; defaults to Israel today, else latest day with items."""
+    """Single-day calendar picker, defaults to Israel today, else latest day with items."""
     today = israel_today()
     min_day, max_day = _news_date_bounds(all_items)
     note: str | None = None
@@ -385,7 +385,7 @@ def _render_digest_controls(total: int) -> tuple[int, int]:
 
     start = (page - 1) * DIGEST_PAGE_SIZE
     end = min(start + DIGEST_PAGE_SIZE, total)
-    showing = f"Showing {start + 1}–{end} of {total}" if total else "Showing 0 of 0"
+    showing = f"Showing {start + 1}-{end} of {total}" if total else "Showing 0 of 0"
 
     sort_c, meta_c, prev_c, jump_c, next_c = st.columns(
         [1.65, 1.45, 1.0, 1.35, 1.0],
@@ -417,7 +417,7 @@ def _render_digest_controls(total: int) -> tuple[int, int]:
             use_container_width=True,
             key="digest_prev",
         ):
-            # Only touch digest_page here — select key is synced on the next run.
+            # Only touch digest_page here - select key is synced on the next run.
             st.session_state.digest_page = page - 1
             st.rerun()
     with jump_c:
@@ -512,7 +512,7 @@ def _render_digest_tab(repo: Repository, db_path: Path | None) -> None:
             key="digest_min_relevance",
             help=(
                 "Hide items below this score. Unscored / pending items are "
-                "hidden by default — use Show unscored to reveal them."
+                "hidden by default - use Show unscored to reveal them."
             ),
             on_change=_on_digest_news_date_change,
         )
@@ -547,7 +547,7 @@ def _render_digest_tab(repo: Repository, db_path: Path | None) -> None:
     else:
         show_unscored = False
 
-    # Hide unscored by default; apply minimum relevance to scored items.
+    # Hide unscored by default, apply minimum relevance to scored items.
     visible: list = []
     for item in items:
         if _is_unscored(item):
@@ -584,7 +584,7 @@ def _render_ask_tab(repo: Repository) -> None:
     st.markdown('<div class="ci-section-title">Ask the digest</div>', unsafe_allow_html=True)
     st.caption(
         "Light RAG over retrieved news **plus** the curated comparison matrix. "
-        f"Short chat memory in this browser session only — up to **{MAX_FOLLOW_UPS}** "
+        f"Short chat memory in this browser session only - up to **{MAX_FOLLOW_UPS}** "
         "follow-ups per thread (token guardrail). Not a persistent model memory."
     )
 
@@ -604,7 +604,7 @@ def _render_ask_tab(repo: Repository) -> None:
             st.markdown("**News sources (latest turn)**")
             for i, c in enumerate(citations, start=1):
                 st.markdown(
-                    f"[{i}] [{c.get('title')}]({c.get('url')}) — {c.get('competitor')}"
+                    f"[{i}] [{c.get('title')}]({c.get('url')}) - {c.get('competitor')}"
                 )
         if result.get("used_comparison"):
             st.caption("Also used curated Comparison matrix claims (see Comparison tab).")
@@ -698,7 +698,7 @@ def _render_runs_tab(repo: Repository) -> None:
         '<div class="ci-section-title">Per-source telemetry</div>',
         unsafe_allow_html=True,
     )
-    st.caption("One row per source for the selected run — diagnose fetch/gate/selection failures.")
+    st.caption("One row per source for the selected run - diagnose fetch/gate/selection failures.")
     labels = {
         r["id"]: (
             f"{format_israel_time(r.get('started_at'))} · {r.get('trigger')} · "

@@ -1,9 +1,9 @@
 # Comparison matrix built ONLY from official product pages / docs.
 # Every claim must include source_url and a short quote. Use Unknown when no source exists.
 # Never generate cells from model memory.
-# Updated manually by a CI analyst when product pages change — NOT by the news pipeline.
+# Updated manually by a CI analyst when product pages change - NOT by the news pipeline.
 
-last_reviewed: "2026-10-02"
+last_reviewed: "2026-10-03"
 reviewed_by: "ci-intel-tool curator (take-home)"
 
 capabilities:
@@ -21,7 +21,7 @@ capabilities:
       github:
         claim: "GitHub Packages for publishing and consuming packages alongside source."
         source_url: "https://github.com/features/packages"
-        quote: "Your packages — your code — hosted together."
+        quote: "Your packages - your code - hosted together."
       gitlab:
         claim: "GitLab Package Registry as part of the DevSecOps platform."
         source_url: "https://docs.gitlab.com/ee/user/packages/package_registry/"
@@ -30,6 +30,34 @@ capabilities:
         claim: "Unknown"
         source_url: null
         quote: null
+      cloudsmith:
+        claim: "Universal cloud-native artifact management for 30+ package formats, containers, and raw files."
+        source_url: "https://cloudsmith.com/"
+        quote: "Cloudsmith is a universal, cloud-native, enterprise-grade artifact management solution."
+      harness:
+        claim: "Built-in Artifact Registry for packages, containers, models, and binaries."
+        source_url: "https://www.harness.io/products/artifact-registry"
+        quote: "a built-in Artifact Registry for packages, containers, models, and binaries."
+      chainguard:
+        claim: "Hardened Chainguard Containers distributed from Chainguard's registry (and Docker Hub for free images)."
+        source_url: "https://edu.chainguard.dev/chainguard/containers/overview/"
+        quote: "Chainguard Containers are primarily available from Chainguard's registry, but a selection of developer images is also available on Docker Hub."
+      socket:
+        claim: "Unknown"
+        source_url: null
+        quote: null
+      endor_labs:
+        claim: "Unknown"
+        source_url: null
+        quote: null
+      anchore:
+        claim: "Unknown"
+        source_url: null
+        quote: null
+      docker:
+        claim: "Docker Hub as a software artifact registry for container images and OCI artifacts."
+        source_url: "https://www.docker.com/products/docker-hub/"
+        quote: "Docker Hub is the world's largest public software artifact registry and distribution platform."
 
   - id: sca
     label: Software Composition Analysis (SCA)
@@ -54,12 +82,40 @@ capabilities:
         claim: "Snyk Open Source finds and fixes vulnerable dependencies."
         source_url: "https://snyk.io/product/open-source-security-management/"
         quote: "Find and automatically fix vulnerabilities in open source dependencies."
+      cloudsmith:
+        claim: "Automatic vulnerability scanning of packages with policy gates at the registry."
+        source_url: "https://cloudsmith.com/product/integrations/github-actions"
+        quote: "Every package pushed to a Cloudsmith repository is automatically scanned for known vulnerabilities using continuously updated security databases."
+      harness:
+        claim: "Dependency Firewall evaluates upstream packages against CVE, license, and malware policies at ingest."
+        source_url: "https://www.harness.io/products/artifact-registry"
+        quote: "Dependency firewall. Control which OSS packages developers and agents can pull. Block malicious or unverified dependencies before they reach a build."
+      chainguard:
+        claim: "Unknown"
+        source_url: null
+        quote: null
+      socket:
+        claim: "Next-gen SCA with content-based dependency analysis for CVEs and malicious packages."
+        source_url: "https://socket.dev/use-case/sca"
+        quote: "Socket goes beyond traditional SCA tools by not only flagging CVEs but also performing content-based dependency analysis to detect malicious patterns and sophisticated supply chain attacks."
+      endor_labs:
+        claim: "SCA with function-level reachability analysis to prioritize exploitable open-source CVEs."
+        source_url: "https://docs.endorlabs.com/scan/sca/"
+        quote: "Identify vulnerabilities in open source dependencies with reachability analysis."
+      anchore:
+        claim: "SBOM-powered SCA for containers, filesystems, and source with continuous vulnerability matching."
+        source_url: "https://anchore.com/platform/secure/"
+        quote: "It scans container images, generates an SBOM, identifies vulnerabilities and other security problems, and enables you to prioritize and remediate issues."
+      docker:
+        claim: "Docker Scout analyzes image SBOMs against CVE data to surface dependency vulnerabilities."
+        source_url: "https://www.docker.com/products/docker-scout/"
+        quote: "Docker Scout generates a software bill of materials (SBOM) for each image, which is a complete inventory of every component inside it."
 
   - id: cicd
     label: CI / CD Integration
     companies:
       jfrog:
-        claim: "Integrates with major CI servers; JFrog Pipelines for CI/CD workflows."
+        claim: "Integrates with major CI servers, JFrog Pipelines for CI/CD workflows."
         source_url: "https://jfrog.com/pipelines/"
         quote: "CI/CD as Code automation for software delivery."
       sonatype:
@@ -78,6 +134,34 @@ capabilities:
         claim: "CI/CD integrations to break builds on vulnerable packages."
         source_url: "https://docs.snyk.io/scm-ide-and-ci-cd-integrations/snyk-ci-cd-integrations"
         quote: "Integrate Snyk into your CI/CD pipelines."
+      cloudsmith:
+        claim: "Official Cloudsmith CLI Action publishes packages from GitHub Actions with OIDC auth."
+        source_url: "https://cloudsmith.com/product/integrations/github-actions"
+        quote: "Connect Cloudsmith to your GitHub workflows using the official Cloudsmith CLI Action."
+      harness:
+        claim: "Harness CI for AI-accelerated continuous integration builds and tests."
+        source_url: "https://www.harness.io/products/continuous-integration"
+        quote: "Harness Software Delivery Agent uses AI to accelerate continuous integration."
+      chainguard:
+        claim: "Unknown"
+        source_url: null
+        quote: null
+      socket:
+        claim: "GitHub App and CI/CD integrations for dependency alerts in developer workflows."
+        source_url: "https://socket.dev/use-case/sca"
+        quote: "effortless integration into your CI/CD pipeline and precise notifications that reduce alert fatigue."
+      endor_labs:
+        claim: "endorctl scan runs SCA (including reachability) on local and CI/CD runners."
+        source_url: "https://docs.endorlabs.com/scan/sca/"
+        quote: "System specifications for local and CI/CD scan"
+      anchore:
+        claim: "AnchoreCTL policy checks gate CI/CD pipelines with pass/fail results."
+        source_url: "https://docs.anchore.com/current/docs/overview/capabilities/"
+        quote: "Policies can be enforced directly in CI/CD pipelines using AnchoreCTL."
+      docker:
+        claim: "Docker Scout analyzes images in CI via GitHub Actions, GitLab, Azure DevOps, CircleCI, and Jenkins."
+        source_url: "https://docs.docker.com/scout/integrations/ci/"
+        quote: "You can analyze Docker images in continuous integration pipelines as you build them using a GitHub action or the Docker Scout CLI plugin."
 
   - id: security_scanning
     label: Security Scanning / Aspom / Curation
@@ -102,6 +186,34 @@ capabilities:
         claim: "Snyk Code, Container, and IaC security products."
         source_url: "https://snyk.io/product/"
         quote: "Developer-first security across code, open source, containers, and IaC."
+      cloudsmith:
+        claim: "Package scanning for vulnerabilities and malware with OPA Rego policy enforcement."
+        source_url: "https://cloudsmith.com/"
+        quote: "Identify vulnerabilities and malware in your packages. Feed metadata and threat signals into our advanced policy management engine."
+      harness:
+        claim: "Built-in vulnerability scanning (Aqua Trivy), SBOM/signing, and quarantine gates on artifacts."
+        source_url: "https://www.harness.io/products/artifact-registry"
+        quote: "Vulnerability scanning - built-in Aqua Trivy scanning with cached results for instant rescans"
+      chainguard:
+        claim: "Minimal hardened containers with nightly rebuilds, signed SBOMs, and Sigstore signatures."
+        source_url: "https://edu.chainguard.dev/chainguard/containers/overview/"
+        quote: "High quality build-time SBOMs (software bill of materials) attesting the provenance of all artifacts within the container image"
+      socket:
+        claim: "Malicious-package detection plus Socket Firewall to block risky installs org-wide."
+        source_url: "https://www.socket.dev/features"
+        quote: "Firewall: block malicious packages org-wide before they reach any developer"
+      endor_labs:
+        claim: "Reachability-based prioritization of open-source vulnerabilities down to callable functions."
+        source_url: "https://www.endorlabs.com/use-case/sca-with-reachability"
+        quote: "SCA with function-level reachability analysis knows which vulnerabilities are callable in your application."
+      anchore:
+        claim: "Vulnerability, malware, and secret scanning across images, source, and filesystems."
+        source_url: "https://anchore.com/platform/secure/"
+        quote: "Automate the scanning of container images, source code, and filesystems for vulnerabilities, malware, and secrets."
+      docker:
+        claim: "Docker Scout local vulnerability analysis, remediation guidance, and policy evaluation."
+        source_url: "https://www.docker.com/products/docker-scout/"
+        quote: "Designed to identify security issues, outdated packages, and potential compliance problems within container images."
 
   - id: distribution
     label: Software Distribution / Edge
@@ -126,6 +238,34 @@ capabilities:
         claim: "Unknown"
         source_url: null
         quote: null
+      cloudsmith:
+        claim: "Global package delivery network with edge caching across hundreds of PoPs."
+        source_url: "https://cloudsmith.com/"
+        quote: "We auto-scale, and serve packages from 600 points of presence worldwide."
+      harness:
+        claim: "Multi-region artifact replication to co-locate packages with cloud regions."
+        source_url: "https://www.harness.io/products/artifact-registry"
+        quote: "Multi-region replication - co-locate with AWS, GCP, or Azure for local-speed pulls and 99.9% uptime"
+      chainguard:
+        claim: "Unknown"
+        source_url: null
+        quote: null
+      socket:
+        claim: "Unknown"
+        source_url: null
+        quote: null
+      endor_labs:
+        claim: "Unknown"
+        source_url: null
+        quote: null
+      anchore:
+        claim: "Unknown"
+        source_url: null
+        quote: null
+      docker:
+        claim: "Docker Hub for discovering, distributing, and sharing container images and OCI artifacts."
+        source_url: "https://www.docker.com/products/docker-hub/"
+        quote: "Discover, distribute, and share your dependencies"
 
   - id: ml_ai_artifacts
     label: ML / AI Artifact Management
@@ -150,7 +290,36 @@ capabilities:
         claim: "Unknown"
         source_url: null
         quote: null
+      cloudsmith:
+        claim: "Centralize ML model management alongside packages and containers."
+        source_url: "https://cloudsmith.com/product/cloud-native-artifact-management"
+        quote: "Centralize ML model management alongside packages"
+      harness:
+        claim: "Native AI/ML artifact support including model versioning and Hugging Face proxying."
+        source_url: "https://www.harness.io/products/artifact-registry"
+        quote: "AI/ML artifact support - native model versioning, metadata tracking, and Hugging Face proxying"
+      chainguard:
+        claim: "Unknown"
+        source_url: null
+        quote: null
+      socket:
+        claim: "Unknown"
+        source_url: null
+        quote: null
+      endor_labs:
+        claim: "Inventories AI models and AI services alongside open-source libraries in the SBOM."
+        source_url: "https://www.endorlabs.com/use-case/sca-with-reachability"
+        quote: "Inventory AI models and AI services alongside open source libraries in a single SBOM."
+      anchore:
+        claim: "Detects AI model files (GGUF, SafeTensors) in images/filesystems and records them in the SBOM."
+        source_url: "https://docs.anchore.com/current/docs/overview/capabilities/"
+        quote: "Anchore Enterprise identifies AI models in container images and filesystems and records them in the SBOM as first-class packages."
+      docker:
+        claim: "Docker Hub hosts container images, hardened content, LLMs, and MCP servers in one registry."
+        source_url: "https://www.docker.com/products/docker-hub/"
+        quote: "One software artifact registry and distribution platform for container images, hardened content, large-language models, MCP servers, and more."
 
 # Contextual background only (not tracked competitors): cloud registries.
 context_notes:
   - "AWS ECR and GCP Artifact Registry are treated as pricing/platform pressure, not discrete daily competitors."
+  - "Secondary (Cloudsmith, Harness) and emerging (Chainguard, Socket, Endor Labs, Anchore, Docker) columns are curated from official product pages, Unknown means no official sourced claim for that capability yet."

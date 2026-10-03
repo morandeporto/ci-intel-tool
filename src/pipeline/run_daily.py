@@ -335,7 +335,7 @@ def rescore_fallback_items(
         sid: str(meta.get("kind") or "") for sid, meta in source_meta.items()
     }
 
-    # Claim atomically before classifying — skip rows another worker already took.
+    # Claim atomically before classifying - skip rows another worker already took.
     claimed: list[dict[str, Any]] = []
     for row in candidates:
         news_id = str(row["id"])
@@ -367,7 +367,7 @@ def rescore_fallback_items(
                 model_id_override=model_id,
             )
         except DailyQuotaError as exc:
-            # Release claimed-but-unscored rows back to pending; do not fail the job.
+            # Release claimed-but-unscored rows back to pending, do not fail the job.
             stats.quota_stopped = True
             for row in batch_rows:
                 try:
@@ -405,7 +405,7 @@ def rescore_fallback_items(
                         "scoring",
                     )
                     if was_pending:
-                        # Keep awaiting a later night / run — not a mid-score fallback.
+                        # Keep awaiting a later night / run - not a mid-score fallback.
                         repo.conn.execute(
                             """
                             UPDATE news_items
@@ -418,7 +418,7 @@ def rescore_fallback_items(
                         )
                         repo.conn.commit()
                     else:
-                        # Original fallback row — leave is_fallback=1 placeholders.
+                        # Original fallback row - leave is_fallback=1 placeholders.
                         repo.conn.execute(
                             """
                             UPDATE news_items
@@ -597,7 +597,7 @@ def run_rescore_only(
             f"still_fallback={stats.still_fallback} retries={stats.retries_used}"
         )
         if stats.quota_stopped:
-            msg += " | daily quota — remaining items stay pending_scoring"
+            msg += " | daily quota - remaining items stay pending_scoring"
         repo.finish_run(
             run_id,
             status=status,
@@ -639,7 +639,7 @@ def run_daily(
 ) -> PipelineResult:
     """Execute one daily ingestion + classification cycle.
 
-    dry_run: fetch + dedupe + freshness + gate + select + print — no LLM, no writes.
+    dry_run: fetch + dedupe + freshness + gate + select + print - no LLM, no writes.
     window_hours: override model.yaml window (used by --backfill-days).
     limit: when set, raises/sets the selection cap for this run (not clamped down).
     After a live run, automatically rescores recent fallbacks (last N days) unless
@@ -650,7 +650,7 @@ def run_daily(
     if window_hours is not None:
         model_cfg = {**model_cfg, "window_hours": int(window_hours)}
     max_per_run = int(model_cfg["max_items_per_run"])
-    # WHY: backfill passes --limit to raise the cap; daily runs use model.yaml default.
+    # WHY: backfill passes --limit to raise the cap, daily runs use model.yaml default.
     effective_limit = max_per_run if limit is None else max(1, int(limit))
     try:
         model_id = resolve_pipeline_model(model_cfg, use_fallback=use_fallback_model)
@@ -772,7 +772,7 @@ def run_daily(
                         and active_model != fallback_model
                     ):
                         logger.warning(
-                            "Primary model %s hit daily quota (%s); switching to fallback_model=%s",
+                            "Primary model %s hit daily quota (%s), switching to fallback_model=%s",
                             active_model,
                             exc.retry_hint or "no hint",
                             fallback_model,
@@ -850,7 +850,7 @@ def run_daily(
                         classified_by_source=classified_by_source,
                     )
                 )
-            except Exception as exc:  # noqa: BLE001 — telemetry must not kill the run
+            except Exception as exc:  # noqa: BLE001 - telemetry must not kill the run
                 logger.warning("Failed to persist source_run_stats: %s", exc)
 
             status = _resolve_status(
@@ -868,7 +868,7 @@ def run_daily(
             if daily_quota_hit:
                 error_message = (
                     f"{quota_reason}: {items_pending_scoring} item(s) left "
-                    f"pending_scoring (not fallback); model={active_model}"
+                    f"pending_scoring (not fallback), model={active_model}"
                 )
             elif (
                 len(selected) > 0
@@ -879,7 +879,7 @@ def run_daily(
                     f"Model call failed for every selected item "
                     f"({items_fallback}/{len(selected)} fallback)"
                     + (
-                        f"; first: {classify_errors[0][:160]}"
+                        f", first: {classify_errors[0][:160]}"
                         if classify_errors
                         else ""
                     )
@@ -894,14 +894,14 @@ def run_daily(
                     f"{items_fallback} item(s) saved with average fallback scores "
                     f"(Gemini unavailable)"
                     + (
-                        f"; first: {classify_errors[0][:120]}"
+                        f", first: {classify_errors[0][:120]}"
                         if classify_errors
                         else ""
                     )
                 )
             elif len(new_entries) == 0 and items_scored == 0 and len(selected) == 0:
                 error_message = (
-                    "No new articles to ingest — everything in the feed is already in the digest."
+                    "No new articles to ingest - everything in the feed is already in the digest."
                 )
             elif source_errors and status != "success":
                 error_message = f"{source_errors} source fetch error(s)"
@@ -974,7 +974,7 @@ def run_daily(
                 conn.close()
             except Exception:
                 pass
-    except Exception as exc:  # noqa: BLE001 — top-level guard for run table status
+    except Exception as exc:  # noqa: BLE001 - top-level guard for run table status
         message = f"Pipeline failed: {exc}"
         if run_id is not None:
             try:
@@ -1021,7 +1021,7 @@ def _run_dry(
     use_turso: bool,
     path: Path | None,
 ) -> PipelineResult:
-    """Fetch + dedupe + freshness + gate + select + print; keep DB conn open until done."""
+    """Fetch + dedupe + freshness + gate + select + print, keep DB conn open until done."""
     existing_urls: set[str] = set()
     existing_hashes: set[str] = set()
     dry_repo: Repository | None = None
@@ -1158,12 +1158,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "--limit",
         type=int,
         default=None,
-        help="Selection/classify cap for this run (overrides max_items_per_run; can raise it).",
+        help="Selection/classify cap for this run (overrides max_items_per_run, can raise it).",
     )
     parser.add_argument(
         "--dry-run",
         action="store_true",
-        help="Fetch + dedupe + freshness + gate + select + print; no LLM, no DB writes.",
+        help="Fetch + dedupe + freshness + gate + select + print, no LLM, no DB writes.",
     )
     parser.add_argument(
         "--backfill-days",

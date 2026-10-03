@@ -152,7 +152,7 @@ def handle_pending_action(
         flash(message, ok=ok)
         st.rerun()
 
-    # Only the continue control is rendered before st.stop() — hide it off-screen.
+    # Only the continue control is rendered before st.stop() - hide it off-screen.
     st.markdown(
         '<style>div[data-testid="stButton"] { position:fixed!important;left:-10000px!important;'
         "width:1px!important;height:1px!important;opacity:0!important; }</style>",

@@ -32,15 +32,15 @@ Get a key from [Google AI Studio](https://aistudio.google.com/apikey). Never com
 streamlit run src/ui/app.py
 ```
 
-The app uses **Turso** when `TURSO_DATABASE_URL` + `TURSO_AUTH_TOKEN` are set in `.env`; otherwise local `data/ci_intel.db`. There is **no seed/fake database** — an empty DB shows a friendly empty state with **Run Now**.
+The app uses **Turso** when `TURSO_DATABASE_URL` + `TURSO_AUTH_TOKEN` are set in `.env`, otherwise local `data/ci_intel.db`. There is **no seed/fake database** - an empty DB shows a friendly empty state with **Run Now**.
 
 ### UI tabs
 
 | Tab | What you get |
 |-----|----------------|
-| **Daily Digest** | Items by date (Israel today default); weight sliders; min-relevance filter; item_type filter; 👍/👎; **Run Now** |
-| **Ask the Digest** | Light RAG: top-k news + curated comparison matrix → Gemini with citations; up to 2 session follow-ups |
-| **Comparison** | Curated capability matrix — every claim has a source link + quote, or **Unknown** |
+| **Daily Digest** | Items by date (Israel today default), weight sliders, min-relevance filter, item_type filter, 👍/👎, **Run Now** |
+| **Ask the Digest** | Light RAG: top-k news + curated comparison matrix → Gemini with citations, up to 2 session follow-ups |
+| **Comparison** | Curated capability matrix - every claim has a source link + quote, or **Unknown** |
 | **Pipeline runs** | Cron/manual run history plus per-source telemetry for the selected run |
 
 ### Optional shared database (Turso)
@@ -63,7 +63,7 @@ Then restart the app / pipeline. If those vars are unset (or still placeholders)
 Flow: concurrent fetch → URL dedupe → **48h freshness** → **relevance gate** →
 **kind-balanced selection** (max **20** / run, **3** / source) → Gemini → SQLite/Turso.
 
-Dry run (fetch + gate + select + print — **no LLM calls, no DB writes**):
+Dry run (fetch + gate + select + print - **no LLM calls, no DB writes**):
 
 ```bash
 python -m src.pipeline.run_daily --dry-run
@@ -81,7 +81,7 @@ python -m src.pipeline.run_daily --db data/ci_intel.db
 
 | Flag | Purpose |
 |------|---------|
-| `--dry-run` | Fetch + freshness + gate + select; no LLM, no writes |
+| `--dry-run` | Fetch + freshness + gate + select, no LLM, no writes |
 | `--trigger manual\|cron` | Stored on `pipeline_runs` (default: `manual`) |
 | `--limit N` | Selection/classify cap for this run (overrides `max_items_per_run: 20`) |
 | `--backfill-days N` | Widen freshness window to N days (real ingest, same gate/selection) |
@@ -91,9 +91,9 @@ Requires `GEMINI_API_KEY` for live classification. Writes to **Turso** when conf
 
 ### Gate and selection (config-driven)
 
-- **Freshness:** `window_hours: 48` in `config/model.yaml`. Future-dated items ignored; missing dates logged.
-- **Gate:** `gate: "off"` for official/emerging; `gate: "strict"` for industry/community (`config/relevance.yaml` strong keywords; weak alone never pass). Maintenance title patterns excluded for all sources.
-- **Selection:** top 3 per source; reserved slots official 8 / emerging 4 / industry+community 6; unused slots spill; cap-skipped items are **not** stored.
+- **Freshness:** `window_hours: 48` in `config/model.yaml`. Future-dated items ignored, missing dates logged.
+- **Gate:** `gate: "off"` for official/emerging, `gate: "strict"` for industry/community (`config/relevance.yaml` strong keywords, weak alone never pass). Maintenance title patterns excluded for all sources.
+- **Selection:** top 3 per source, reserved slots official 8 / emerging 4 / industry+community 6, unused slots spill, cap-skipped items are **not** stored.
 
 ---
 
@@ -134,31 +134,31 @@ config/*.yaml   competitors, sources, relevance, weights, model, comparison
 
 | Decision | Why |
 |----------|-----|
-| **Gemini** (`gemini-3.8-flash` in `config/model.yaml`) | Free-tier friendly for a ~2-day take-home; model id lives only in config for one-line swaps |
-| **Weights in code, not in the LLM** | Dimension scores (1–5) are stored; retuning weights needs no re-query; **Save weights** persists to DB |
-| **Turso for shared demo; Postgres for production** | Shared reviewers now; managed Postgres if this were a real product |
-| **Light RAG Ask tab** | Retrieve-from-SQLite + curated comparison matrix → Gemini; max 2 follow-ups per session thread |
-| **Curated `comparison.yaml`** | Claims must be source-linked; never generated from model memory; not auto-updated by news |
-| **48h window + gate + balanced selection** | Survives date-only stamps / missed cron; cheap keyword gate for noisy outlets; reserved LLM seats by kind |
-| **Official JFrog blog + research RSS** | Verified feeds; Medium/status disabled once replacements passed |
+| **Gemini** (`gemini-3.8-flash` in `config/model.yaml`) | Free-tier friendly for a ~2-day take-home, model id lives only in config for one-line swaps |
+| **Weights in code, not in the LLM** | Dimension scores (1-5) are stored, retuning weights needs no re-query, **Save weights** persists to DB |
+| **Turso for shared demo, Postgres for production** | Shared reviewers now, managed Postgres if this were a real product |
+| **Light RAG Ask tab** | Retrieve-from-SQLite + curated comparison matrix → Gemini, max 2 follow-ups per session thread |
+| **Curated `comparison.yaml`** | Claims must be source-linked, never generated from model memory, not auto-updated by news |
+| **48h window + gate + balanced selection** | Survives date-only stamps / missed cron, cheap keyword gate for noisy outlets, reserved LLM seats by kind |
+| **Official JFrog blog + research RSS** | Verified feeds, Medium/status disabled once replacements passed |
 | **Emerging + industry coverage** | Chainguard/Socket/Endor/Anchore/Docker + research/standards blogs (verified URLs only) |
-| **Feedback table + UI now; learning later** | Groundwork for a lead-scoring-style loop; automated weight adjustment is Future Work |
+| **Feedback table + UI now, learning later** | Groundwork for a lead-scoring-style loop, automated weight adjustment is Future Work |
 
 Full rationale: [DECISIONS.md](DECISIONS.md).
 
 ### Presentation point (feedback loop)
 
-Today operators can nudge ranking with weight sliders and record 👍/👎 plus a short rationale. **In the future**, users will not tune weights manually. They will correct an item’s rating with a brief explanation (“Not relevant because…”), and an automated feedback loop will ingest that signal to adjust weights (and potentially prompts)—the same idea as a lead-scoring feedback loop. The storage and UI are built; the learning engine is not.
+Today operators can nudge ranking with weight sliders and record 👍/👎 plus a short rationale. **In the future**, users will not tune weights manually. They will correct an item’s rating with a brief explanation (“Not relevant because…”), and an automated feedback loop will ingest that signal to adjust weights (and potentially prompts)-the same idea as a lead-scoring feedback loop. The storage and UI are built, the learning engine is not.
 
 ---
 
 ## Security Considerations
 
 - Untrusted RSS text is isolated in LLM prompts behind `<<<UNTRUSTED_CONTENT>>>` … `<<<END_UNTRUSTED_CONTENT>>>` delimiters (prompt-injection awareness).
-- No hardcoded secrets: API keys live in `.env` only; `.env.example` ships placeholders; `.gitignore` blocks `.env`.
-- Comparison and news claims carry source URLs (or **Unknown**)—no claims from model memory.
+- No hardcoded secrets: API keys live in `.env` only, `.env.example` ships placeholders, `.gitignore` blocks `.env`.
+- Comparison and news claims carry source URLs (or **Unknown**)-no claims from model memory.
 - Cost caps: `max_items_per_run`, request timeout, excerpt length, and rate-limit sleep in `config/model.yaml`.
-- In production, dependency scanning and package policy would use **JFrog Xray / Curation**; any future MCP tools would be vetted via a **JFrog MCP Registry** before deployment.
+- In production, dependency scanning and package policy would use **JFrog Xray / Curation**, any future MCP tools would be vetted via a **JFrog MCP Registry** before deployment.
 
 ---
 
@@ -167,35 +167,35 @@ Today operators can nudge ranking with weight sliders and record 👍/👎 plus 
 | Item | Status |
 |------|--------|
 | Automated weight learning from feedback | **Future Work** (table + UI + Save weights exist) |
-| Embeddings / vector DB | **Future Work** — light RAG (keyword retrieve → Gemini) is built in Ask the Digest |
-| Full multi-tenant Postgres production DB | Documented as production choice; take-home uses Turso or local SQLite |
+| Embeddings / vector DB | **Future Work** - light RAG (keyword retrieve → Gemini) is built in Ask the Digest |
+| Full multi-tenant Postgres production DB | Documented as production choice, take-home uses Turso or local SQLite |
 | Slack notifications | Not built |
 | Classification eval suite | Not built (unit tests cover scoring + dedupe) |
-| Read-only MCP server (`search_news`, `get_comparison`, `get_digest`) | Optional bonus — **not built** |
+| Read-only MCP server (`search_news`, `get_comparison`, `get_digest`) | Optional bonus - **not built** |
 | Cloudsmith / Harness / emerging vendors | **Enabled** after feed verification (2026-10-03) |
-| CISA advisories / CRA regulation feeds | **Not in** — HTTP 403 / not CRA-specific; **Future Work adapter** |
+| CISA advisories / CRA regulation feeds | **Not in** - HTTP 403 / not CRA-specific, **Future Work adapter** |
 | The Register feed | Disabled (bot-challenge HTML to automated clients) |
 
 ### Challenges and pitfalls
 
 | Pitfall | What we saw | Mitigation |
 |---------|-------------|------------|
-| Gemini free-tier **daily quota is per model** | `PerDay` errors stop generate; Ask/Run Now compete with cron | Soft `llm_usage` + `model_daily_limits` per model id; optional `fallback_model`; Ask shows a friendly message; remaining items become `pending_scoring` (not mid-score fallback) |
-| Classification cost / rate | One call per item burned the free tier fast | **Batched classification** (`batch_size: 5`) with per-article delimiters; per-model min interval (RPM) |
-| `pending_scoring` backlog | Quota mid-run left items unscored | Hide unscored in the UI by default; end-of-run heal + nightly `retry_pending.yml` (08:30 UTC) share the same soft budget and atomic `scoring` claims |
-| HN / hnrss.org **502** | Intermittent gateway errors on `hn_*` feeds | 5xx retry + backoff for `hn_*`; left enabled with YAML notes when still failing |
+| Gemini free-tier **daily quota is per model** | `PerDay` errors stop generate, Ask/Run Now compete with cron | Soft `llm_usage` + `model_daily_limits` per model id, optional `fallback_model`, Ask shows a friendly message, remaining items become `pending_scoring` (not mid-score fallback) |
+| Classification cost / rate | One call per item burned the free tier fast | **Batched classification** (`batch_size: 5`) with per-article delimiters, per-model min interval (RPM) |
+| `pending_scoring` backlog | Quota mid-run left items unscored | Hide unscored in the UI by default, end-of-run heal + nightly `retry_pending.yml` (08:30 UTC) share the same soft budget and atomic `scoring` claims |
+| HN / hnrss.org **502** | Intermittent gateway errors on `hn_*` feeds | 5xx retry + backoff for `hn_*`, left enabled with YAML notes when still failing |
 | Reddit noise / 429 | `r/devops` was 25/25 filtered under the strict gate | Disabled `reddit_devops` (2026-10-03) with YAML note |
-| JFrog blog empty / HTTP 202 | `jfrog.com/blog/feed/` often returns 202 with empty body | Marked `user_agent: browser`; keep research feed; Medium disabled as stale |
-| Browser-like User-Agent | Some hosts reject the honest tool UA | Default UA is identifiable `ci-intel-tool/1.0`; **only** `jfrog_blog` uses browser UA today (listed in YAML). We do **not** bypass 403/challenges |
+| JFrog blog empty / HTTP 202 | `jfrog.com/blog/feed/` often returns 202 with empty body | Marked `user_agent: browser`, keep research feed, Medium disabled as stale |
+| Browser-like User-Agent | Some hosts reject the honest tool UA | Default UA is identifiable `ci-intel-tool/1.0`, **only** `jfrog_blog` uses browser UA today (listed in YAML). We do **not** bypass 403/challenges |
 | Date-only timestamps | Midnight stamps look “old” vs a 24h morning run | **48h** freshness window |
 | Future-dated status items | Status feeds sometimes post future maintenance windows | Drop `published_at > now` |
 | Huge archives | `snyk.io/blog/feed/` has ~1670 historical items | Parse/normalize **only in-window** entries before selection |
-| Feeds that do not exist | Guessed `/blog/feed` paths 404; IR/CISA 403 | Verify with `scripts/verify_feeds.py`; disable with dated YAML notes |
-| Fallback / silent success | Model outages could look like a green run | `is_fallback` flag; cron fails if **every** selected item falls back; high fallback → `degraded` |
+| Feeds that do not exist | Guessed `/blog/feed` paths 404, IR/CISA 403 | Verify with `scripts/verify_feeds.py`, disable with dated YAML notes |
+| Fallback / silent success | Model outages could look like a green run | `is_fallback` flag, cron fails if **every** selected item falls back, high fallback → `degraded` |
 
-### Why not every source type from the brief — and how we'd ship them in production
+### Why not every source type from the brief - and how we'd ship them in production
 
-**Built now (v1):** verified **RSS/Atom only** — official + emerging vendor blogs, security research,
+**Built now (v1):** verified **RSS/Atom only** - official + emerging vendor blogs, security research,
 standards/community, HN/Reddit. We do **not** invent mock URLs.
 
 | Brief source type | v1 status | Why |
@@ -203,20 +203,20 @@ standards/community, HN/Reddit. We do **not** invent mock URLs.
 | Official blogs / release notes | **In** | Core + secondary competitors with verified feeds |
 | Emerging players | **In** | Chainguard, Socket, Endor Labs, Anchore, Docker |
 | Security research / DevOps news | **In** | ReversingLabs, Aikido, StepSecurity, CNCF, OpenSSF, TNS, PyPI, … |
-| Community | **In** (gated) | HN keyword feeds + Reddit; strict keyword gate |
-| Regulation (CISA, EU CRA / SBOM rules) | **Not in** | CISA XML **403**; EU digital-strategy RSS is generic policy noise — needs a dedicated **regulation adapter** |
+| Community | **In** (gated) | HN keyword feeds + Reddit, strict keyword gate |
+| Regulation (CISA, EU CRA / SBOM rules) | **Not in** | CISA XML **403**, EU digital-strategy RSS is generic policy noise - needs a dedicated **regulation adapter** |
 | Quarterly financials (JFrog, GitLab) | **Not in** | IR RSS **403** |
-| Pricing / jobs | **Not in** | HTML change-detection / ATS APIs — future adapters |
+| Pricing / jobs | **Not in** | HTML change-detection / ATS APIs - future adapters |
 
 **Production adapter roadmap** (same normalize → classify → score path): IR/EDGAR, CRA/CISA
-regulation monitors, pricing diff, jobs APIs — with circuit breakers and ToS checks. Comparison
+regulation monitors, pricing diff, jobs APIs - with circuit breakers and ToS checks. Comparison
 matrix stays curated YAML until an analyst promotes a sourced claim.
 
 ---
 
 ## UI note
 
-The Streamlit app **emulates** a JFrog-like dark aesthetic (navy `#070B19`, green `#40BE46`, Open Sans via theme/CSS). It is **not** an official JFrog component library—no official logos or brand assets are copied.
+The Streamlit app **emulates** a JFrog-like dark aesthetic (navy `#070B19`, green `#40BE46`, Open Sans via theme/CSS). It is **not** an official JFrog component library-no official logos or brand assets are copied.
 
 **Streamlit is pinned** at `streamlit==1.39.0` in `requirements.txt` because custom CSS for pills/tabs is fragile across Streamlit releases. Keep that pin for demos.
 
@@ -250,7 +250,7 @@ per-source/kind selection, config loading, schema migration, and LLM parse helpe
 
 ```
 config/           competitors, sources, weights, model, comparison
-data/             schema.sql; ci_intel.db (gitignored, created at runtime)
+data/             schema.sql, ci_intel.db (gitignored, created at runtime)
 scripts/          verify_feeds.py, diagnose_fetch.py
 src/ingest/       RSS fetch + normalize
 src/process/      dedupe, LLM classify, scoring
@@ -265,4 +265,4 @@ src/ui/           Streamlit app + styles.css
 
 ## Presentation materials
 
-- [DECISIONS.md](DECISIONS.md) — architectural decision log
+- [DECISIONS.md](DECISIONS.md) - architectural decision log

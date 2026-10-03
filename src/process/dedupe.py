@@ -1,6 +1,6 @@
 """Title normalization and content hashing for ingestion-time deduplication.
 
-URL match catches identical posts; title hash catches near-duplicates across feeds.
+URL match catches identical posts, title hash catches near-duplicates across feeds.
 """
 
 from __future__ import annotations
@@ -18,12 +18,12 @@ def normalize_title(title: str) -> str:
 
 
 def content_hash(title: str, url: str | None = None) -> str:
-    """SHA-256 of the normalized title (url reserved for callers; not hashed).
+    """SHA-256 of the normalized title (url reserved for callers, not hashed).
 
     Title-only hashing lets the same story from mirrored RSS feeds collide even
     when URLs differ. URL-based dedupe is handled separately in ``is_duplicate``.
     """
-    # ``url`` is accepted for a stable call site with ingest; hashing stays
+    # ``url`` is accepted for a stable call site with ingest, hashing stays
     # title-based so feed mirrors with different links still collide.
     _ = url
     digest = hashlib.sha256(normalize_title(title).encode("utf-8"))

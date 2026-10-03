@@ -1,4 +1,4 @@
-"""Database connection helpers — local SQLite or shared Turso (libSQL).
+"""Database connection helpers - local SQLite or shared Turso (libSQL).
 
 Local file mode is the default for offline demos. When TURSO_DATABASE_URL and
 TURSO_AUTH_TOKEN are set, all reviewers share one remote SQLite-compatible DB.
@@ -51,7 +51,7 @@ def is_connection_error(exc: BaseException) -> bool:
 
 
 def ping_connection(conn: Any) -> None:
-    """Cheap liveness check — raises if the socket/remote is dead."""
+    """Cheap liveness check - raises if the socket/remote is dead."""
     conn.execute("SELECT 1")
 
 
@@ -59,7 +59,7 @@ def db_label(db_path: Path | str | None = None) -> str:
     """Human-readable DB description for the UI."""
     if turso_configured():
         url = os.getenv("TURSO_DATABASE_URL", "").strip()
-        # Show host only — never echo the auth token.
+        # Show host only - never echo the auth token.
         host = url.split("@")[-1] if url else "turso"
         return f"Turso (shared): {host}"
     path = Path(db_path) if db_path else resolve_db_path()
@@ -118,7 +118,7 @@ def _turso_connection() -> Any:
 
 
 def _apply_schema(conn: Any, schema_sql: str) -> None:
-    """Apply schema. Prefer executescript; fall back to statement-splitting for remotes."""
+    """Apply schema. Prefer executescript, fall back to statement-splitting for remotes."""
     try:
         conn.executescript(schema_sql)
         conn.commit()

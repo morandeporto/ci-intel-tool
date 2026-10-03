@@ -1,7 +1,7 @@
 """Per-source relevance gate before LLM classification.
 
-gate: "off"  — official_competitor / emerging: never keyword-filtered.
-gate: "strict" — industry / community: require ≥1 strong whole-word keyword.
+gate: "off"  - official_competitor / emerging: never keyword-filtered.
+gate: "strict" - industry / community: require ≥1 strong whole-word keyword.
 Weak keywords alone never pass. exclude_title_patterns apply to ALL sources.
 """
 
@@ -25,11 +25,11 @@ class GateDecision:
 
 
 def _compile_whole_word_pattern(keyword: str) -> re.Pattern[str]:
-    """Match keyword as whole words; allow non-alnum inside phrases (e.g. CI/CD)."""
+    """Match keyword as whole words, allow non-alnum inside phrases (e.g. CI/CD)."""
     parts = [re.escape(p) for p in keyword.split() if p]
     if not parts:
         return re.compile(r"(?!)")  # never matches
-    # Word boundaries around the full phrase; interior spaces flexible.
+    # Word boundaries around the full phrase, interior spaces flexible.
     body = r"\s+".join(parts)
     return re.compile(rf"(?<!\w){body}(?!\w)", re.IGNORECASE)
 

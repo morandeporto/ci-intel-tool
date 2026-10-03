@@ -77,7 +77,7 @@ def test_strict_strong_in_summary_passes() -> None:
 
 
 def test_whole_word_match_avoids_substring_false_positive() -> None:
-    # "npm" must not match inside "companypackage" style tokens; "Snyk" not in "Snyker".
+    # "npm" must not match inside "companypackage" style tokens, "Snyk" not in "Snyker".
     entry = _entry("Meet the Snyker team at the conference")
     decision = evaluate_gate(entry, gate="strict", relevance_cfg=RELEVANCE)
     assert decision.passed is False

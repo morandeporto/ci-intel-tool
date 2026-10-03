@@ -1,5 +1,5 @@
 # Keyword relevance gate for industry/community sources (gate: strict).
-# Official competitor and emerging sources use gate: off — never filtered by keywords.
+# Official competitor and emerging sources use gate: off - never filtered by keywords.
 # Strong keywords: at least ONE whole-word match required to pass strict gate.
 # Weak keywords: never enough alone (used only for ranking signals later if needed).
 

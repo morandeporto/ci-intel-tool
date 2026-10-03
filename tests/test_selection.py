@@ -80,7 +80,7 @@ def test_top_three_per_source() -> None:
 
 
 def test_balanced_slots_prevent_competitors_from_consuming_cap() -> None:
-    # 12 official candidates from 4 sources, 6 industry — reserved 8/4/6, max 20.
+    # 12 official candidates from 4 sources, 6 industry - reserved 8/4/6, max 20.
     official: dict[str, list[NormalizedEntry]] = {}
     for src in ("snyk_blog", "github_blog", "gitlab_blog", "sonatype_blog"):
         official[src] = [_entry(src, f"{src}-{i}", hours_ago=i) for i in range(3)]
@@ -121,7 +121,7 @@ def test_unused_emerging_slots_flow_to_other_kinds() -> None:
     industry = {
         "devops_com": [_entry("devops_com", f"d{i}", hours_ago=i) for i in range(3)],
     }
-    # No emerging candidates — their 4 reserved slots should spill.
+    # No emerging candidates - their 4 reserved slots should spill.
     result = balance_across_kinds(
         {**official, **industry},
         kind_by_source={
@@ -191,5 +191,5 @@ def test_select_for_llm_round_trip() -> None:
     assert "Launch" in titles
     assert "SBOM news" in titles
     # "Containers only" still selected if it was gate-passed by caller;
-    # select_for_llm assumes gate already applied — both industry items may appear.
+    # select_for_llm assumes gate already applied - both industry items may appear.
     assert len(result.selected) >= 2

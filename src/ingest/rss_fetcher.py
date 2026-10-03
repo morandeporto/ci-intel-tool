@@ -1,6 +1,6 @@
 """Fetch RSS/Atom feeds for configured competitors.
 
-Per-source errors are collected and returned; a single bad feed never aborts
+Per-source errors are collected and returned, a single bad feed never aborts
 the whole run. Fetches run concurrently with a per-source timeout. Content is
 treated as untrusted text (no LLM in this module).
 """
@@ -26,7 +26,7 @@ from src.ingest.normalize import (
 
 logger = logging.getLogger(__name__)
 
-# Honest identifiable UA — prefer this. Browser UA only for sources that need it.
+# Honest identifiable UA - prefer this. Browser UA only for sources that need it.
 HONEST_USER_AGENT = (
     "ci-intel-tool/1.0 (+https://github.com/morandeporto/ci-intel-tool; "
     "take-home assignment)"
@@ -39,7 +39,7 @@ BROWSER_USER_AGENT = (
 DEFAULT_USER_AGENT = HONEST_USER_AGENT
 DEFAULT_TIMEOUT_SECONDS = 15.0
 DEFAULT_FETCH_CONCURRENCY = 8
-# hnrss.org occasionally returns 502/503; a short backoff usually recovers.
+# hnrss.org occasionally returns 502/503, a short backoff usually recovers.
 HN_5XX_MAX_ATTEMPTS = 3
 HN_5XX_BASE_SECONDS = 1.0
 # jfrog_blog intermittently returns HTTP 202 with an empty body.
@@ -57,7 +57,7 @@ class SourceFetchError:
     url: str
     message: str
     http_status: str | None = None
-    # warning = telemetry only; must not flip pipeline status to partial
+    # warning = telemetry only, must not flip pipeline status to partial
     severity: str = "error"
 
 
@@ -92,7 +92,7 @@ class NormalizedFetchResult:
 
 
 def source_is_required(source: dict[str, Any]) -> bool:
-    """Sources default to required=true; community YAML sets required: false."""
+    """Sources default to required=true, community YAML sets required: false."""
     if "required" in source:
         return bool(source.get("required"))
     return True
@@ -193,7 +193,7 @@ def _http_get_with_optional_5xx_retry(
             return response
         delay = HN_5XX_BASE_SECONDS * (2**attempt)
         logger.warning(
-            "HTTP %s for %s (attempt %s/%s); retrying in %.1fs",
+            "HTTP %s for %s (attempt %s/%s), retrying in %.1fs",
             response.status_code,
             source_id,
             attempt + 1,
@@ -270,7 +270,7 @@ def fetch_source(
                     min(attempt, len(JFROG_EMPTY_202_BACKOFF_SECONDS) - 1)
                 ]
                 logger.warning(
-                    "jfrog_blog empty HTTP 202 (attempt %s/%s); retrying in %.0fs",
+                    "jfrog_blog empty HTTP 202 (attempt %s/%s), retrying in %.0fs",
                     attempt + 1,
                     JFROG_EMPTY_202_ATTEMPTS,
                     delay,
@@ -284,7 +284,7 @@ def fetch_source(
                     source_id=source_id,
                 )
         http_status = str(response.status_code)
-        # Persistent empty 202 → warning (not error); return no entries.
+        # Persistent empty 202 → warning (not error), return no entries.
         if (
             source_id == "jfrog_blog"
             and response.status_code == 202
@@ -345,7 +345,7 @@ def fetch_source(
             except Exception:
                 pass
 
-    # Untrusted body — store/parse only; never execute or trust as instructions.
+    # Untrusted body - store/parse only, never execute or trust as instructions.
     content_type = (response.headers.get("content-type") or "").lower()
     body_prefix = response.content.lstrip()[:200].lower()
     if b"<!doctype html" in body_prefix or b"<html" in body_prefix:
@@ -398,7 +398,7 @@ def _fetch_one_isolated(
     timeout: float | None,
     window_hours: int | None,
 ) -> tuple[list[dict[str, Any]], SourceFetchError | None, SourceFetchStat]:
-    """Never raises — wraps fetch_source for the thread pool."""
+    """Never raises - wraps fetch_source for the thread pool."""
     source_id = str(source.get("id", "unknown"))
     try:
         entries, error, http_status, duration_ms = fetch_source(
@@ -439,7 +439,7 @@ def fetch_all_sources(
     user_agent: str = DEFAULT_USER_AGENT,
     window_hours: int | None = None,
 ) -> FetchResult:
-    """Fetch every enabled source concurrently; never raise for individual failures.
+    """Fetch every enabled source concurrently, never raise for individual failures.
 
     ``user_agent`` is ignored for per-source selection (kept for API compatibility);
     each source uses honest or browser UA from its YAML ``user_agent`` field.
@@ -468,7 +468,7 @@ def fetch_all_sources(
             required = source_is_required(source)
             try:
                 entries, error, stat = fut.result()
-            except Exception as exc:  # noqa: BLE001 — isolate pool failures
+            except Exception as exc:  # noqa: BLE001 - isolate pool failures
                 err = SourceFetchError(
                     source_id,
                     str(source.get("url", "")),

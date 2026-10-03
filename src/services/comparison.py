@@ -1,4 +1,4 @@
-"""Comparison matrix service — claims only from config sources, never model memory."""
+"""Comparison matrix service - claims only from config sources, never model memory."""
 
 from __future__ import annotations
 
@@ -26,7 +26,7 @@ class ComparisonRow:
 
 
 def _normalize_claim(raw: dict[str, Any] | None, company_id: str, company_label: str) -> ComparisonClaim:
-    """Force Unknown when source_url is missing — never invent a claim."""
+    """Force Unknown when source_url is missing - never invent a claim."""
     if not raw or not isinstance(raw, dict):
         return ComparisonClaim(
             company_id=company_id,
@@ -72,7 +72,7 @@ def get_comparison_matrix(
     label_by_id = {c["id"]: c.get("display_name", c["id"]) for c in competitors}
 
     if company_ids is None:
-        # Prefer enabled competitors; keep jfrog first.
+        # Prefer enabled competitors, keep jfrog first.
         enabled = [c["id"] for c in competitors if c.get("enabled", False)]
         company_ids = enabled if enabled else list(label_by_id.keys())
         if "jfrog" in company_ids:

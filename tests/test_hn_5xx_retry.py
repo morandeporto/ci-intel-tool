@@ -1,4 +1,4 @@
-"""hn_* feed 5xx retry (mocked HTTP — no live network)."""
+"""hn_* feed 5xx retry (mocked HTTP - no live network)."""
 
 from __future__ import annotations
 

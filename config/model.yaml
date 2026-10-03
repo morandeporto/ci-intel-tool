@@ -1,7 +1,7 @@
 # LLM provider settings. Swap pipeline_model / ask_model (and API key in .env)
 # to change models. Provider/model must never be hardcoded in application logic.
 # Single API key only: GEMINI_API_KEY (no separate Ask key).
-# Model ids below were copied from a read-only list-models call (2026-10-03) — no aliases.
+# Model ids below were copied from a read-only list-models call (2026-10-03) - no aliases.
 
 provider: gemini
 # Primary pipeline classifier (also aliased as model_id for backward compatibility).
@@ -13,7 +13,7 @@ fallback_model: gemini-3.5-flash-lite
 ask_model: gemini-3.1-flash-lite
 
 # Soft per-model daily call budgets (llm_usage). Hard stop still comes from API PerDay errors.
-# Conservative defaults — verify the real RPD for each model in Google AI Studio and adjust.
+# Conservative defaults - verify the real RPD for each model in Google AI Studio and adjust.
 model_daily_limits:
   gemini-3.8-flash: 20
   gemini-3.5-flash-lite: 50
@@ -23,7 +23,7 @@ model_daily_limits:
 quota_day_timezone: UTC
 
 # Per-model minimum delay between Gemini calls (respect RPM).
-# Primary ~5 RPM → 12s; Flash Lite ~15 RPM → 4s.
+# Primary ~5 RPM → 12s, Flash Lite ~15 RPM → 4s.
 model_min_interval_seconds:
   gemini-3.8-flash: 12.0
   gemini-3.5-flash-lite: 4.0
@@ -47,7 +47,7 @@ rate_limit_sleep_seconds: 1.0
 llm_max_attempts: 3
 llm_retry_base_seconds: 1.0
 llm_retry_max_seconds: 20.0
-# Cap concurrent Gemini calls; keep burst small.
+# Cap concurrent Gemini calls, keep burst small.
 # With batching, prefer sequential batches (concurrency 1) unless raised.
 llm_concurrency: 1
 # Global fallback spacing when a model is missing from model_min_interval_seconds.

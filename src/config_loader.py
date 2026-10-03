@@ -70,7 +70,7 @@ def load_weights(config_dir: Path | None = None) -> dict[str, float]:
 def load_model_config(config_dir: Path | None = None) -> dict[str, Any]:
     base = config_dir or CONFIG_DIR
     data = _load_yaml(base / "model.yaml")
-    # pipeline_model is canonical; model_id kept as alias for older callers/tests.
+    # pipeline_model is canonical, model_id kept as alias for older callers/tests.
     if "pipeline_model" not in data and "model_id" in data:
         data["pipeline_model"] = data["model_id"]
     if "model_id" not in data and "pipeline_model" in data:
@@ -95,7 +95,7 @@ def load_model_config(config_dir: Path | None = None) -> dict[str, Any]:
             raise ConfigError(
                 f"model.yaml selection.reserved_slots missing key: {slot_key}"
             )
-    # Soft budget sanity check (warn only — never hard-fail config load).
+    # Soft budget sanity check (warn only - never hard-fail config load).
     try:
         from src.process.llm_quota import warn_if_budgets_exceed_limits
 
@@ -140,7 +140,7 @@ def enabled_sources(
             continue
         kind = source.get("kind")
         gate = source.get("gate")
-        # YAML 1.1 treats bare `off` as boolean false — normalize before validate.
+        # YAML 1.1 treats bare `off` as boolean false - normalize before validate.
         if gate is False:
             gate = "off"
             source["gate"] = "off"
@@ -151,16 +151,16 @@ def enabled_sources(
             )
         if kind not in _VALID_KINDS:
             raise ConfigError(
-                f"source {source.get('id')!r} has invalid kind {kind!r}; "
+                f"source {source.get('id')!r} has invalid kind {kind!r}, "
                 f"expected one of {sorted(_VALID_KINDS)}"
             )
         if gate not in _VALID_GATES:
             raise ConfigError(
-                f"source {source.get('id')!r} has invalid gate {gate!r}; "
+                f"source {source.get('id')!r} has invalid gate {gate!r}, "
                 f"expected one of {sorted(_VALID_GATES)}"
             )
         competitor = source.get("competitor")
-        # null / industry = non-vendor outlets; otherwise require an enabled competitor.
+        # null / industry = non-vendor outlets, otherwise require an enabled competitor.
         if competitor is None or competitor == "industry" or competitor in enabled_ids:
             result.append(source)
     return result

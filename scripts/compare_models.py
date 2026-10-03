@@ -109,7 +109,7 @@ def _score_ten(
             model_config=cfg,
             item_ids=ids,
             model_id_override=model_id,
-            usage_guard=None,  # throwaway script — do not touch llm_usage soft counters
+            usage_guard=None,  # throwaway script - do not touch llm_usage soft counters
         )
         if missing:
             print(f"WARNING: {model_id} missing ids after batch: {missing}", file=sys.stderr)
@@ -120,7 +120,7 @@ def _score_ten(
 
 def main() -> int:
     if not turso_configured():
-        print("Turso is not configured; need stored items to compare.", file=sys.stderr)
+        print("Turso is not configured, need stored items to compare.", file=sys.stderr)
         return 2
     init_db()
     conn = get_connection()
@@ -130,7 +130,7 @@ def main() -> int:
         source_meta = {str(s["id"]): s for s in load_sources()}
         picked = _pick_ten(rows, source_meta)
         if len(picked) < 10:
-            print(f"Need 10 scored items with mixed kinds; found {len(picked)}", file=sys.stderr)
+            print(f"Need 10 scored items with mixed kinds, found {len(picked)}", file=sys.stderr)
             return 2
 
         cfg = load_model_config()
@@ -142,8 +142,8 @@ def main() -> int:
         meta_by_id = {batch_item_id(_to_entry(r)): r for r in picked}
 
         print(f"Comparing {len(entries)} items")
-        print(f"  model A (pipeline): {model_a}  — 2 live batch calls")
-        print(f"  model B (fallback): {model_b}  — 2 live batch calls")
+        print(f"  model A (pipeline): {model_a}  - 2 live batch calls")
+        print(f"  model B (fallback): {model_b}  - 2 live batch calls")
         print()
 
         try:

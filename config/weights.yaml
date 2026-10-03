@@ -1,5 +1,5 @@
 # Relevance scoring weights. Must sum to 1.0.
-# Dimension scores (1-5) come from the LLM; the weighted total is computed in code.
+# Dimension scores (1-5) come from the LLM, the weighted total is computed in code.
 # Changing weights does not require re-querying the LLM.
 
 dimensions:

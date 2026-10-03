@@ -2,7 +2,7 @@
 """Read-only Gemini list-models helper (no generate_content calls).
 
 Prints:
-  (a) model ids containing "flash-lite" (exact API ids — copy into config yourself)
+  (a) model ids containing "flash-lite" (exact API ids - copy into config yourself)
   (b) the currently configured pipeline_model / model_id primary
 
 Never writes config. Safe to run when the generate quota is exhausted.
@@ -39,7 +39,7 @@ def main() -> int:
     all_ids: list[str] = []
     for model in genai.list_models():
         name = getattr(model, "name", None) or ""
-        # API returns "models/<id>"; normalize to bare id for config.
+        # API returns "models/<id>", normalize to bare id for config.
         model_id = name.split("/", 1)[-1] if name else ""
         if not model_id:
             continue

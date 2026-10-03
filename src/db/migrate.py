@@ -60,7 +60,7 @@ def migrate_schema(conn: Any) -> list[str]:
     changes: list[str] = []
 
     if not _table_exists(conn, "news_items"):
-        # Fresh schema.sql apply will create tables; nothing to migrate yet.
+        # Fresh schema.sql apply will create tables, nothing to migrate yet.
         return changes
 
     if _add_column_if_missing(

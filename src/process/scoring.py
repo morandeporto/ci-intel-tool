@@ -26,14 +26,14 @@ def _as_dimension_dict(dimensions: Mapping[str, Any] | DimensionScores) -> dict[
 
 
 def validate_dimensions(dimensions: Mapping[str, Any] | DimensionScores) -> dict[str, int]:
-    """Ensure every dimension is present and within the LLM 1–5 scale."""
+    """Ensure every dimension is present and within the LLM 1-5 scale."""
     dims = _as_dimension_dict(dimensions)
     missing = [name for name in DIMENSION_NAMES if name not in dims]
     if missing:
         raise ScoringError(f"Missing dimension scores: {', '.join(missing)}")
     for name in DIMENSION_NAMES:
         value = dims[name]
-        # bool is a subclass of int; reject it so True/False never become 1/0 scores.
+        # bool is a subclass of int, reject it so True/False never become 1/0 scores.
         if isinstance(value, bool) or not isinstance(value, int):
             raise ScoringError(f"Dimension {name} must be an integer, got {value!r}")
         if value < DIM_MIN or value > DIM_MAX:
@@ -59,7 +59,7 @@ def weighted_score(
     dimensions: Mapping[str, Any] | DimensionScores,
     weights: Mapping[str, float],
 ) -> float:
-    """Compute sum(dim_i * weight_i); keeps scoring deterministic and tunable."""
+    """Compute sum(dim_i * weight_i), keeps scoring deterministic and tunable."""
     dims = validate_dimensions(dimensions)
     w = validate_weights(weights)
     return sum(dims[name] * w[name] for name in DIMENSION_NAMES)

@@ -1,6 +1,6 @@
 """Normalize raw feed entries into a stable internal shape.
 
-Fetched web/RSS content is treated as untrusted text only — no LLM calls here.
+Fetched web/RSS content is treated as untrusted text only - no LLM calls here.
 """
 
 from __future__ import annotations
@@ -33,7 +33,7 @@ class NormalizedEntry:
 
 
 def _strip_html(text: str) -> str:
-    """Remove simple HTML tags; keep plain text for storage/prompts later."""
+    """Remove simple HTML tags, keep plain text for storage/prompts later."""
     without_tags = re.sub(r"<[^>]+>", " ", text)
     return " ".join(without_tags.split())
 

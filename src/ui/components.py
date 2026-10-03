@@ -23,10 +23,10 @@ def _e(value: Any) -> str:
 def format_israel_time(value: str | None) -> str:
     """Format ISO timestamps as clean Israel local time: DD/MM/YYYY HH:MM."""
     if not value:
-        return "—"
+        return "-"
     text = str(value).strip()
     if not text:
-        return "—"
+        return "-"
     try:
         if text.endswith("Z"):
             text = text[:-1] + "+00:00"
@@ -69,7 +69,7 @@ def render_banner(title_green: str, title_white: str, subtitle: str) -> str:
 
 
 def render_kpi(value: str, label: str, *, glow: bool = False) -> str:
-    """Single compact KPI card (render one per Streamlit column — avoids HTML breakups)."""
+    """Single compact KPI card (render one per Streamlit column - avoids HTML breakups)."""
     glow_cls = " glow" if glow else ""
     return f"""
     <div class="ci-kpi">
@@ -97,7 +97,7 @@ def render_score_ring(score: float | None, *, is_fallback: bool = False) -> str:
         return render_not_scored_badge()
     pct = max(0, min(100, int(round((float(score) / SCORE_MAX) * 100))))
     label = f"{float(score):.2f}"
-    # Inline conic-gradient (no CSS vars) — Streamlit sanitizers often strip `--pct`.
+    # Inline conic-gradient (no CSS vars) - Streamlit sanitizers often strip `--pct`.
     ring_bg = f"background:conic-gradient(#40BE46 {pct}%,#333642 0);"
     return (
         f'<div class="ci-score-wrap">'
@@ -157,7 +157,7 @@ def render_news_card(item: dict[str, Any]) -> str:
     score = item.get("relevance_score")
     # Card label = article publish time (not the digest filter's ingest day).
     published_label = format_israel_time(item.get("published_at"))
-    if published_label == "—":
+    if published_label == "-":
         published_label = format_israel_time(item.get("ingested_at"))
     published = f"Published: {published_label}"
 
@@ -283,7 +283,7 @@ def _render_error_popup(raw: str | None, uid: str) -> tuple[str, str]:
     """Return (inline trigger HTML, modal HTML to place outside overflow parents)."""
     text = (str(raw).strip() if raw is not None else "")
     if not text:
-        return ('<span class="ci-err-short">—</span>', "")
+        return ('<span class="ci-err-short">-</span>', "")
     full = _e(text)
     if len(text) <= _ERR_PREVIEW_CHARS:
         return (f'<span class="ci-err-short">{full}</span>', "")
@@ -332,9 +332,9 @@ def render_run_history(runs: list[dict[str, Any]]) -> str:
         fetched = _e(r.get("items_fetched"))
         new = _e(r.get("items_new"))
         scored = _e(r.get("items_scored"))
-        ok = _e(r.get("items_classified_ok") if r.get("items_classified_ok") is not None else "—")
-        fallback = _e(r.get("items_fallback") if r.get("items_fallback") is not None else "—")
-        retries = _e(r.get("retries_used") if r.get("retries_used") is not None else "—")
+        ok = _e(r.get("items_classified_ok") if r.get("items_classified_ok") is not None else "-")
+        fallback = _e(r.get("items_fallback") if r.get("items_fallback") is not None else "-")
+        retries = _e(r.get("retries_used") if r.get("retries_used") is not None else "-")
         warn_n = int(r.get("source_warnings") or 0)
         warn_html = (
             f'<span class="ci-run-warn" title="Non-required source soft failures">'

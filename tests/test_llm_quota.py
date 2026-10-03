@@ -100,7 +100,7 @@ def _pending_item(item_id: str) -> NewsItem:
 
 
 def test_claim_item_for_scoring_atomic_race(tmp_path) -> None:
-    """Two workers racing for the same pending items — each id claimed once."""
+    """Two workers racing for the same pending items - each id claimed once."""
     db = tmp_path / "race.db"
     init_db(db)
     conn = get_connection(db)

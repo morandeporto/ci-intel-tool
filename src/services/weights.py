@@ -20,7 +20,7 @@ WEIGHTS_KEY = "weights"
 
 
 def get_effective_weights(repo: Repository | None = None) -> dict[str, float]:
-    """Prefer DB-saved weights; fall back to config/weights.yaml."""
+    """Prefer DB-saved weights, fall back to config/weights.yaml."""
     if repo is not None:
         saved = repo.get_setting(WEIGHTS_KEY)
         if saved:

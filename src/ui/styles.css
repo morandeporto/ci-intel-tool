@@ -1,5 +1,5 @@
-/* CI Intel Tool — JFrog-inspired design tokens (emulated look, not official assets).
-   Readable type scale for older users; mobile-first wrapping for navigation. */
+/* CI Intel Tool - JFrog-inspired design tokens (emulated look, not official assets).
+   Readable type scale for older users, mobile-first wrapping for navigation. */
 
 @import url("https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;600;700&display=swap");
 
@@ -97,7 +97,7 @@ iframe[title="streamlit_component"] {
   pointer-events: none !important;
 }
 
-/* Question / text inputs — avoid clipped bottom border */
+/* Question / text inputs - avoid clipped bottom border */
 div[data-testid="stTextInput"] {
   margin-bottom: 1rem !important;
   overflow: visible !important;
@@ -123,7 +123,7 @@ div[data-testid="stTextInput"] input {
   flex-shrink: 0;
 }
 
-/* Hide Streamlit's default top toast — we use #ci-toast at bottom via JS. */
+/* Hide Streamlit's default top toast - we use #ci-toast at bottom via JS. */
 div[data-testid="stToast"],
 div[data-testid="stToastContainer"] {
   display: none !important;
@@ -199,7 +199,7 @@ div[data-testid="stHorizontalBlock"]:has(.ci-run-now-slot) > div[data-testid="co
   color: #fff !important;
 }
 
-/* 👎 red only when selected (type=primary); idle secondary stays outline */
+/* 👎 red only when selected (type=primary), idle secondary stays outline */
 div[data-testid="column"]:has(.ci-fb-down-slot) div.stButton > button[kind="primary"],
 div[data-testid="column"]:has(.ci-fb-down-slot) div.stButton > button[data-testid="baseButton-primary"],
 div[data-testid="column"]:has(.ci-fb-down-slot) div[data-testid="stButton"] > button[kind="primary"],
@@ -499,7 +499,7 @@ div[data-testid="column"] div.stButton > button {
   font-size: 1rem;
 }
 
-/* Only the weight-sum cluster gets a surface — not the whole page/section. */
+/* Only the weight-sum cluster gets a surface - not the whole page/section. */
 .ci-weight-panel {
   background: linear-gradient(145deg, rgba(20, 36, 61, 0.95), rgba(30, 45, 62, 0.9));
   border: 1px solid rgba(64, 190, 70, 0.28);
@@ -543,7 +543,7 @@ div[data-testid="stAlert"] {
   font-size: 1rem !important;
 }
 
-/* NO global bordered-container styling — frames were destroying the layout. */
+/* NO global bordered-container styling - frames were destroying the layout. */
 
 .ci-matrix {
   width: 100%;
@@ -795,7 +795,7 @@ div[data-testid="stHorizontalBlock"]:has(.ci-digest-controls-marker) {
   overflow: hidden;
 }
 
-/* Mobile card substitutes — hidden on desktop */
+/* Mobile card substitutes - hidden on desktop */
 .ci-matrix-mobile,
 .ci-run-mobile {
   display: none;

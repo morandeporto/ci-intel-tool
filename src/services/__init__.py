@@ -1,4 +1,4 @@
-"""Business logic layer (UI-agnostic; ready for a future read-only MCP server)."""
+"""Business logic layer (UI-agnostic, ready for a future read-only MCP server)."""
 
 from src.services.comparison import comparison_as_dicts, get_comparison_matrix
 from src.services.digest import digest_kpis, list_digest

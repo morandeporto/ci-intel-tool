@@ -26,7 +26,7 @@ class CallIntervalGate:
             self._next_allowed = now + self.min_interval
 
 
-# Shared gate for the process — reset via configure_llm_interval() at run start.
+# Shared gate for the process - reset via configure_llm_interval() at run start.
 _GATE = CallIntervalGate(0.0)
 
 

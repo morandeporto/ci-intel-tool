@@ -572,7 +572,7 @@ class Repository:
         model: str,
         calls: int = 1,
     ) -> int:
-        """Atomically bump the soft usage counter; returns new total for that row."""
+        """Atomically bump the soft usage counter, returns new total for that row."""
         if calls < 1:
             return self.get_llm_usage_calls(
                 date_utc=date_utc, model=model, purpose=purpose
@@ -616,7 +616,7 @@ class Repository:
         older_than_minutes: int = 30,
     ) -> int:
         """Return items stuck in status=scoring back to pending_scoring."""
-        # ingested_at / a side column isn't ideal; use filter_reason stamp when claimed.
+        # ingested_at / a side column isn't ideal, use filter_reason stamp when claimed.
         # Claim stores filter_reason = 'scoring_claimed_at:<iso>'.
         cur = self.conn.execute(
             """
@@ -637,7 +637,7 @@ class Repository:
                 except ValueError:
                     claimed_at = None
             if claimed_at is None:
-                # Unknown claim time — release to avoid permanent stuck state.
+                # Unknown claim time - release to avoid permanent stuck state.
                 stale = True
             else:
                 if claimed_at.tzinfo is None:
@@ -677,7 +677,7 @@ class Repository:
         self.conn.commit()
         affected = getattr(cur, "rowcount", None)
         if affected is None:
-            # libsql may not expose rowcount — verify status.
+            # libsql may not expose rowcount - verify status.
             row = self.conn.execute(
                 "SELECT status, filter_reason FROM news_items WHERE id = ?",
                 (news_item_id,),

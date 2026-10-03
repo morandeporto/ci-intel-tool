@@ -112,7 +112,7 @@ def _keyword_matches(title: str, summary: str) -> int:
     text = f"{title} {summary}".lower()
     count = 0
     for kw in KEYWORDS:
-        # Word-ish match; allow CI/CD and multi-word phrases.
+        # Word-ish match, allow CI/CD and multi-word phrases.
         pattern = re.escape(kw.lower())
         if re.search(pattern, text):
             count += 1
@@ -172,7 +172,7 @@ def _fetch_one(
 
 
 def _load_dedupe_sets(db_path: Path) -> tuple[set[str], set[str]]:
-    """Read-only local SQLite — never call get_connection() without a path."""
+    """Read-only local SQLite - never call get_connection() without a path."""
     if not db_path.exists():
         return set(), set()
     conn = get_connection(db_path)
@@ -275,7 +275,7 @@ def main(argv: list[str] | None = None) -> int:
 
     db_path = args.db.expanduser().resolve()
     # Guardrail: never open Turso from this script.
-    print(f"db={db_path} (local SQLite only; Turso disabled for this script)")
+    print(f"db={db_path} (local SQLite only, Turso disabled for this script)")
     print(f"as_of={_utc_now().replace(microsecond=0).isoformat()}")
 
     model_cfg = load_model_config()
@@ -285,7 +285,7 @@ def main(argv: list[str] | None = None) -> int:
 
     sources = enabled_sources()
     existing_urls, existing_hashes = _load_dedupe_sets(db_path)
-    # Global accumulating sets (YAML order) — matches pipeline dedupe behavior.
+    # Global accumulating sets (YAML order) - matches pipeline dedupe behavior.
     urls = set(existing_urls)
     hashes = set(existing_hashes)
     cutoff = _utc_now() - timedelta(hours=24)
@@ -437,9 +437,9 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     # --- 4. Relevance gate ---------------------------------------------
-    print("\n== 4. Relevance gate (keyword, no LLM; 24h only) ==")
+    print("\n== 4. Relevance gate (keyword, no LLM, 24h only) ==")
     print(
-        "threshold: official >= 1 match; community/industry >= 2 matches"
+        "threshold: official >= 1 match, community/industry >= 2 matches"
     )
     gate_rows = []
     pass_by_comp: dict[str, list[int]] = defaultdict(lambda: [0, 0])

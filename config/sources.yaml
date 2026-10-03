@@ -1,7 +1,7 @@
-# Ingestion sources. URLs verified with scripts/verify_feeds.py — do not invent mock URLs.
+# Ingestion sources. URLs verified with scripts/verify_feeds.py - do not invent mock URLs.
 # kind: official_competitor | emerging | industry | community
 # gate: "off" (never keyword-filtered) | "strict" (needs a strong keyword)
-# Quote "off" — YAML 1.1 otherwise parses bare off as boolean false.
+# Quote "off" - YAML 1.1 otherwise parses bare off as boolean false.
 # competitor: entity id from competitors.yaml, or null for pure industry/community outlets.
 # user_agent: honest (default) | browser (only when the honest UA is rejected)
 # last_verified: YYYY-MM-DD of the last successful HTTP/feed check.
@@ -18,7 +18,7 @@ sources:
     category: blog
     user_agent: browser
     last_verified: "2026-10-03"
-    note: "Official JFrog blog. Intermittently returns HTTP 202 empty body; browser UA required when it works. Honest UA often gets 202."
+    note: "Official JFrog blog. Intermittently returns HTTP 202 empty body, browser UA required when it works. Honest UA often gets 202."
 
   - id: jfrog_security_research
     competitor: jfrog
@@ -29,7 +29,7 @@ sources:
     enabled: true
     category: security_research
     last_verified: "2026-10-03"
-    note: "Discovered via HTML alternate on research.jfrog.com; supply-chain research posts."
+    note: "Discovered via HTML alternate on research.jfrog.com, supply-chain research posts."
 
   - id: jfrog_medium
     competitor: jfrog
@@ -40,7 +40,7 @@ sources:
     enabled: false
     category: blog
     last_verified: "2026-10-03"
-    note: "Disabled 2026-10-03: stale since June; replaced by jfrog_blog + jfrog_security_research."
+    note: "Disabled 2026-10-03: stale since June, replaced by jfrog_blog + jfrog_security_research."
 
   - id: jfrog_status
     competitor: jfrog
@@ -51,7 +51,7 @@ sources:
     enabled: false
     category: status
     last_verified: "2026-10-03"
-    note: "Disabled 2026-10-03: maintenance notices only; JFrog news sources now pass."
+    note: "Disabled 2026-10-03: maintenance notices only, JFrog news sources now pass."
 
   - id: sonatype_blog
     competitor: sonatype
@@ -106,7 +106,7 @@ sources:
     enabled: true
     category: blog
     last_verified: "2026-10-03"
-    note: "Confirmed real blog RSS (not vuln DB); ~1670 historical items — parse filtered by freshness window."
+    note: "Confirmed real blog RSS (not vuln DB), ~1670 historical items - parse filtered by freshness window."
 
   - id: gitlab_releases
     competitor: gitlab
@@ -184,7 +184,7 @@ sources:
     enabled: true
     category: blog
     last_verified: "2026-10-03"
-    note: "Chainguard's own Unchained blog (feed_link=chainguard.dev; posts under /unchained/). Same content as /api/rss."
+    note: "Chainguard's own Unchained blog (feed_link=chainguard.dev, posts under /unchained/). Same content as /api/rss."
 
   - id: socket_blog
     competitor: socket
@@ -352,7 +352,7 @@ sources:
     enabled: false
     category: community
     last_verified: "2026-10-02"
-    # Disabled 2026-10-03: 25/25 items filtered (noise); not worth the fetch budget.
+    # Disabled 2026-10-03: 25/25 items filtered (noise), not worth the fetch budget.
     note: "Disabled 2026-10-03: 25/25 filtered as noise under strict gate."
 
   - id: hn_supply_chain
@@ -390,7 +390,7 @@ sources:
     enabled: true
     category: community
     last_verified: "2026-10-03"
-    note: "hnrss.org; 2026-10-03 re-verify OK after 5xx retries (1 in-window item)."
+    note: "hnrss.org, 2026-10-03 re-verify OK after 5xx retries (1 in-window item)."
 
   - id: hn_jfrog
     competitor: null
@@ -414,7 +414,7 @@ sources:
     enabled: true
     category: community
     last_verified: "2026-10-03"
-    note: "hnrss.org MCP registry phrase; 2026-10-03 re-verify OK after 5xx retries."
+    note: "hnrss.org MCP registry phrase, 2026-10-03 re-verify OK after 5xx retries."
 
   - id: hn_snyk
     competitor: null
@@ -426,7 +426,7 @@ sources:
     enabled: false
     category: community
     last_verified: "2026-10-03"
-    note: "Disabled 2026-10-03: no new item since 2026-06-25; replaced by hn_supply_chain / hn_sbom."
+    note: "Disabled 2026-10-03: no new item since 2026-06-25, replaced by hn_supply_chain / hn_sbom."
 
   # --- Disabled failures / out of scope -------------------------------------
   - id: register_devops

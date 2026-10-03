@@ -124,7 +124,7 @@ def call_with_retries(
     for attempt in range(max_attempts):
         try:
             return fn(), attempt
-        except Exception as exc:  # noqa: BLE001 — classified by helper predicates
+        except Exception as exc:  # noqa: BLE001 - classified by helper predicates
             last_exc = exc
             if is_non_retryable_client_error(exc):
                 raise

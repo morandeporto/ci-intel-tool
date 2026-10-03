@@ -23,7 +23,7 @@ def _dimensions_from_row(row: dict[str, Any]) -> dict[str, int] | None:
 
 
 def _item_created_at(row: dict[str, Any]) -> str:
-    """Prefer ingest time (DB creation); fall back to source publish time."""
+    """Prefer ingest time (DB creation), fall back to source publish time."""
     return str(row.get("ingested_at") or row.get("published_at") or "")
 
 

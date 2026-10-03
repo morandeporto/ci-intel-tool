@@ -32,12 +32,12 @@ from src.process.llm_rate_limit import wait_llm_interval
 from src.process.retry import call_with_retries, is_transient_error
 
 # Load .env from project root (explicit path avoids fragile cwd / stdin lookups).
-# Secrets stay out of code; only the key name is referenced here.
+# Secrets stay out of code, only the key name is referenced here.
 load_dotenv(PROJECT_ROOT / ".env")
 
 DIM_MIN = 1
 DIM_MAX = 5
-# Midpoint of the 1–5 scale — used when Gemini is unavailable so ingestion still completes.
+# Midpoint of the 1-5 scale - used when Gemini is unavailable so ingestion still completes.
 FALLBACK_DIMENSION_SCORE = 3
 
 ALLOWED_CATEGORIES = (
@@ -62,7 +62,7 @@ class ClassifyError(Exception):
 
 
 class LlmUsageGuard:
-    """Soft per-model daily budget + call counter (optional; tests may omit)."""
+    """Soft per-model daily budget + call counter (optional, tests may omit)."""
 
     def __init__(
         self,
@@ -143,11 +143,11 @@ class ClassificationResult(BaseModel):
     def _coerce_dimension(cls, value: Any) -> int:
         # Reject bool (subclass of int) so True/False never become 1/0 scores.
         if isinstance(value, bool) or not isinstance(value, (int, float, str)):
-            raise ValueError(f"dimension must be an int 1–5, got {value!r}")
+            raise ValueError(f"dimension must be an int 1-5, got {value!r}")
         try:
             coerced = int(value)
         except (TypeError, ValueError) as exc:
-            raise ValueError(f"dimension must be an int 1–5, got {value!r}") from exc
+            raise ValueError(f"dimension must be an int 1-5, got {value!r}") from exc
         if coerced < DIM_MIN or coerced > DIM_MAX:
             raise ValueError(f"dimension {coerced} out of range [{DIM_MIN}, {DIM_MAX}]")
         return coerced
@@ -157,7 +157,7 @@ class ClassificationResult(BaseModel):
 
 
 class BatchedClassificationItem(ClassificationResult):
-    """One item inside a batch response — same fields plus the request id."""
+    """One item inside a batch response - same fields plus the request id."""
 
     id: str
 
@@ -199,7 +199,7 @@ def fallback_classification(
     """
     title = (entry.title or "Untitled item").strip() or "Untitled item"
     summary = (
-        "Automatic placeholder summary — Gemini classification was unavailable. "
+        "Automatic placeholder summary - Gemini classification was unavailable. "
         f"Headline: {title[:240]}"
     )
     mid = FALLBACK_DIMENSION_SCORE
@@ -242,35 +242,35 @@ Most items should score 2-3. Reserve 5 for rare, clearly major events. Do not in
 
 Score each dimension as an integer from 1 to 5:
 
-jfrog_relevance — how directly this matters to JFrog products, customers, or positioning
-(industry-wide supply-chain or SBOM events can be 4–5 when impact is clear):
-  1 = unrelated noise; 3 = indirectly useful context; 5 = direct product/customer impact
+jfrog_relevance - how directly this matters to JFrog products, customers, or positioning
+(industry-wide supply-chain or SBOM events can be 4-5 when impact is clear):
+  1 = unrelated noise, 3 = indirectly useful context, 5 = direct product/customer impact
 
-competitor_signal — intensity of competitive OR market pressure relevant to JFrog
+competitor_signal - intensity of competitive OR market pressure relevant to JFrog
 (vendor product moves, emerging-tool adoption, ecosystem shifts, or regulation that
 changes buyer expectations). Do NOT require a named tracked competitor. A major npm
-supply-chain attack or new SBOM mandate can score 4–5 even when competitor metadata
+supply-chain attack or new SBOM mandate can score 4-5 even when competitor metadata
 is "industry". Score 1 only for noise with no competitive/market pressure:
-  1 = no market/competitive pressure; 3 = notable but routine signal; 5 = major shift
+  1 = no market/competitive pressure, 3 = notable but routine signal, 5 = major shift
 
-strategic_impact — lasting platform/strategy impact vs short-term noise
+strategic_impact - lasting platform/strategy impact vs short-term noise
 (industry/emerging items are NOT capped below competitor launches when impact is real):
-  1 = tactical/ephemeral; 3 = meaningful medium-term; 5 = lasting platform/strategy shift
+  1 = tactical/ephemeral, 3 = meaningful medium-term, 5 = lasting platform/strategy shift
 
-freshness — recency and urgency (use published_at vs today_utc below; do not invent dates):
-  1 = stale or undated with no urgency; 3 = timely routine update; 5 = breaking / highly urgent
+freshness - recency and urgency (use published_at vs today_utc below, do not invent dates):
+  1 = stale or undated with no urgency, 3 = timely routine update, 5 = breaking / highly urgent
 
-market_visibility — how visible/notable this is in the broader market narrative:
-  1 = obscure niche note; 3 = visible in specialist channels; 5 = widely discussed / headline
+market_visibility - how visible/notable this is in the broader market narrative:
+  1 = obscure niche note, 3 = visible in specialist channels, 5 = widely discussed / headline
 
 Also return:
 - item_type: one of "competitor" | "emerging" | "industry"
-  (hint from source metadata, but judge from the article content;
-   e.g. a Snyk launch → competitor; Chainguard/Socket tooling → emerging;
+  (hint from source metadata, but judge from the article content,
+   e.g. a Snyk launch → competitor, Chainguard/Socket tooling → emerging,
    SBOM regulation or npm attack research → industry)
-- jfrog_implication: 1–2 sentences on what this means for JFrog, based ONLY on the
+- jfrog_implication: 1-2 sentences on what this means for JFrog, based ONLY on the
   article excerpt. Do not state what JFrog or competitor products do beyond what the
-  excerpt says. If unclear from the excerpt, say so briefly — do not invent claims.
+  excerpt says. If unclear from the excerpt, say so briefly - do not invent claims.
 
 category must be one of: {categories}
 
@@ -307,7 +307,7 @@ def build_batch_classification_prompt(
     today_utc: str | None = None,
     item_ids: list[str] | None = None,
 ) -> str:
-    """Build a multi-item prompt; each article stays in its own delimited block."""
+    """Build a multi-item prompt, each article stays in its own delimited block."""
     if not entries:
         raise ClassifyError("batch prompt requires at least one entry")
     if item_ids is not None and len(item_ids) != len(entries):
@@ -354,30 +354,30 @@ Most items should score 2-3. Reserve 5 for rare, clearly major events. Do not in
 
 Score each dimension as an integer from 1 to 5:
 
-jfrog_relevance — how directly this matters to JFrog products, customers, or positioning
-(industry-wide supply-chain or SBOM events can be 4–5 when impact is clear):
-  1 = unrelated noise; 3 = indirectly useful context; 5 = direct product/customer impact
+jfrog_relevance - how directly this matters to JFrog products, customers, or positioning
+(industry-wide supply-chain or SBOM events can be 4-5 when impact is clear):
+  1 = unrelated noise, 3 = indirectly useful context, 5 = direct product/customer impact
 
-competitor_signal — intensity of competitive OR market pressure relevant to JFrog
+competitor_signal - intensity of competitive OR market pressure relevant to JFrog
 (vendor product moves, emerging-tool adoption, ecosystem shifts, or regulation that
 changes buyer expectations). Do NOT require a named tracked competitor. A major npm
-supply-chain attack or new SBOM mandate can score 4–5 even when competitor metadata
+supply-chain attack or new SBOM mandate can score 4-5 even when competitor metadata
 is "industry". Score 1 only for noise with no competitive/market pressure:
-  1 = no market/competitive pressure; 3 = notable but routine signal; 5 = major shift
+  1 = no market/competitive pressure, 3 = notable but routine signal, 5 = major shift
 
-strategic_impact — lasting platform/strategy impact vs short-term noise
+strategic_impact - lasting platform/strategy impact vs short-term noise
 (industry/emerging items are NOT capped below competitor launches when impact is real):
-  1 = tactical/ephemeral; 3 = meaningful medium-term; 5 = lasting platform/strategy shift
+  1 = tactical/ephemeral, 3 = meaningful medium-term, 5 = lasting platform/strategy shift
 
-freshness — recency and urgency (use published_at vs today_utc below; do not invent dates):
-  1 = stale or undated with no urgency; 3 = timely routine update; 5 = breaking / highly urgent
+freshness - recency and urgency (use published_at vs today_utc below, do not invent dates):
+  1 = stale or undated with no urgency, 3 = timely routine update, 5 = breaking / highly urgent
 
-market_visibility — how visible/notable this is in the broader market narrative:
-  1 = obscure niche note; 3 = visible in specialist channels; 5 = widely discussed / headline
+market_visibility - how visible/notable this is in the broader market narrative:
+  1 = obscure niche note, 3 = visible in specialist channels, 5 = widely discussed / headline
 
 Also return per item:
 - item_type: one of "competitor" | "emerging" | "industry"
-- jfrog_implication: 1–2 sentences on what this means for JFrog, based ONLY on the
+- jfrog_implication: 1-2 sentences on what this means for JFrog, based ONLY on the
   article excerpt. Do not invent claims beyond the excerpt.
 
 category must be one of: {categories}
@@ -473,7 +473,7 @@ def parse_batch_classification_response(
             continue
         item_id = item_id.strip()
         if item_id not in expected_set:
-            # Reject unknown ids — do not accept hallucinated keys.
+            # Reject unknown ids - do not accept hallucinated keys.
             continue
         if item_id in seen:
             duplicates.add(item_id)
@@ -515,7 +515,7 @@ def _gemini_generate(
     response_schema: type[BaseModel] | None = None,
     temperature: float = 0.2,
 ) -> str:
-    """One Gemini generate_content call; raises ClassifyError on failure."""
+    """One Gemini generate_content call, raises ClassifyError on failure."""
     try:
         import google.generativeai as genai
         from google.generativeai.types import GenerationConfig, RequestOptions
@@ -540,13 +540,13 @@ def _gemini_generate(
         )
     except ClassifyError:
         raise
-    except Exception as exc:  # noqa: BLE001 — surface provider errors cleanly
+    except Exception as exc:  # noqa: BLE001 - surface provider errors cleanly
         raise_if_daily_quota(exc, model_id=model_id)
         raise ClassifyError(f"Gemini API call failed ({model_id}): {exc}") from exc
 
     try:
         text = (response.text or "").strip()
-    except Exception as exc:  # noqa: BLE001 — blocked/empty candidates raise here
+    except Exception as exc:  # noqa: BLE001 - blocked/empty candidates raise here
         raise ClassifyError(f"Gemini returned no usable text: {exc}") from exc
 
     if not text:
@@ -555,7 +555,7 @@ def _gemini_generate(
 
 
 def _reraise_quota_or_classify(exc: BaseException, *, model_id: str) -> None:
-    """Convert daily-quota / exhausted-429 into DailyQuotaError; else ClassifyError."""
+    """Convert daily-quota / exhausted-429 into DailyQuotaError, else ClassifyError."""
     if isinstance(exc, DailyQuotaError):
         raise exc
     raise_if_daily_quota(exc, model_id=model_id)
@@ -641,7 +641,7 @@ def classify_entry(
         usage_guard.record_call(1)
 
     # Cost/rate guardrail: sleep after each successful item (concurrency step may
-    # also space workers; this keeps sequential callers polite).
+    # also space workers, this keeps sequential callers polite).
     if sleep_seconds > 0:
         time.sleep(sleep_seconds)
 
@@ -673,9 +673,9 @@ def classify_entry_with_fallback(
     usage_guard: LlmUsageGuard | None = None,
     model_id_override: str | None = None,
 ) -> tuple[ClassificationResult, bool, str | None, int]:
-    """Classify via Gemini; on ClassifyError return mid-score fallback.
+    """Classify via Gemini, on ClassifyError return mid-score fallback.
 
-    DailyQuotaError propagates — callers must mark items pending_scoring, not fallback.
+    DailyQuotaError propagates - callers must mark items pending_scoring, not fallback.
 
     Returns:
         (result, used_fallback, error_message_or_None, retries_used)
@@ -699,7 +699,7 @@ def classify_entry_with_fallback(
             str(exc),
             retries_used,
         )
-    except Exception as exc:  # noqa: BLE001 — provider/network errors → fallback
+    except Exception as exc:  # noqa: BLE001 - provider/network errors → fallback
         if is_daily_quota_error(exc):
             raise_if_daily_quota(exc, model_id=model_id_override)
         retries_used = int(getattr(exc, "retries_used", 0) or 0)
@@ -803,7 +803,7 @@ def classify_entries_batch_with_fallback(
     usage_guard: LlmUsageGuard | None = None,
     model_id_override: str | None = None,
 ) -> list[tuple[NormalizedEntry, ClassificationResult, bool, str | None, int]]:
-    """Batch-classify entries; missing/invalid ids retried once individually.
+    """Batch-classify entries, missing/invalid ids retried once individually.
 
     Only items that still fail after the individual retry become mid-score fallbacks.
     DailyQuotaError propagates immediately (no individual retries, no fallback).

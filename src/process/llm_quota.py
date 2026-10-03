@@ -2,11 +2,11 @@
 
 Hard stop signal: API error whose quota id/name contains "PerDay", or repeated
 429s after retries are exhausted (avoids retry loops). Soft budget: llm_usage
-counters compared to model_daily_limits in config — advisory headroom only.
+counters compared to model_daily_limits in config - advisory headroom only.
 
 Observed retry hint from Gemini free-tier errors (do NOT hardcode as reset hour
-in logic; used only to choose the nightly cron with a safety margin):
-  # Observed hint example: "Please retry in 3h42m12s" / RetryInfo delay — treat
+in logic, used only to choose the nightly cron with a safety margin):
+  # Observed hint example: "Please retry in 3h42m12s" / RetryInfo delay - treat
   # as opaque. Nightly retry cron is scheduled well after a typical UTC midnight
   # free-tier rollover plus margin (see .github/workflows/retry_pending.yml).
 """
@@ -36,7 +36,7 @@ _RETRY_HINT = re.compile(
 
 
 class DailyQuotaError(Exception):
-    """Raised when the model's daily quota is exhausted — do not retry."""
+    """Raised when the model's daily quota is exhausted - do not retry."""
 
     def __init__(
         self,
@@ -87,8 +87,8 @@ def quota_day_key(
     now = now or datetime.now(timezone.utc)
     try:
         tz = ZoneInfo(tz_name)
-    except Exception:  # noqa: BLE001 — bad tz → UTC
-        logger.warning("Invalid quota_day_timezone %r; using UTC", tz_name)
+    except Exception:  # noqa: BLE001 - bad tz → UTC
+        logger.warning("Invalid quota_day_timezone %r, using UTC", tz_name)
         tz = timezone.utc
     if now.tzinfo is None:
         now = now.replace(tzinfo=timezone.utc)
@@ -116,7 +116,7 @@ def resolve_ask_model(cfg: dict[str, Any]) -> str:
 
 
 def model_min_interval_seconds(cfg: dict[str, Any], model_id: str) -> float:
-    """Per-model spacing between calls (5 rpm → 12s; 15 rpm → 4s)."""
+    """Per-model spacing between calls (5 rpm → 12s, 15 rpm → 4s)."""
     mapping = cfg.get("model_min_interval_seconds") or {}
     if isinstance(mapping, dict) and model_id in mapping:
         return max(0.0, float(mapping[model_id]))
@@ -144,7 +144,7 @@ def estimate_budgeted_calls(cfg: dict[str, Any]) -> dict[str, int]:
     if primary:
         out[primary] = pipeline_calls + rescore_calls
     if ask and ask != primary:
-        # Ask is interactive; budget 1 soft slot for the warning check.
+        # Ask is interactive, budget 1 soft slot for the warning check.
         out[ask] = out.get(ask, 0) + 1
     return out
 
@@ -174,7 +174,7 @@ def raise_if_daily_quota(exc: BaseException, *, model_id: str | None = None) -> 
     hint = extract_retry_hint(exc)
     if hint:
         logger.warning(
-            "Daily quota hit for model=%s; provider retry hint: %s",
+            "Daily quota hit for model=%s, provider retry hint: %s",
             model_id,
             hint,
         )

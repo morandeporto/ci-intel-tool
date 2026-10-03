@@ -1,4 +1,4 @@
-"""Non-required source failures are warnings; jfrog empty-202 is soft."""
+"""Non-required source failures are warnings, jfrog empty-202 is soft."""
 
 from __future__ import annotations
 

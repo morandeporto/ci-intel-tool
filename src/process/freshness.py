@@ -1,7 +1,7 @@
 """Freshness window filter for ingested feed entries.
 
 Only items published within the configured window (default 48h) are kept.
-Future-dated items are dropped. Missing dates are logged and skipped — never crash.
+Future-dated items are dropped. Missing dates are logged and skipped - never crash.
 """
 
 from __future__ import annotations

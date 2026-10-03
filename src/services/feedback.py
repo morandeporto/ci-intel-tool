@@ -29,7 +29,7 @@ def record_feedback(
         raise ValueError(f"Unknown news item: {news_item_id}")
 
     clean_rationale = (rationale or "").strip() or None
-    # Soft length guard — avoid storing large paste dumps as "PII-adjacent" noise.
+    # Soft length guard - avoid storing large paste dumps as "PII-adjacent" noise.
     if clean_rationale and len(clean_rationale) > 2000:
         clean_rationale = clean_rationale[:2000]
     # Thumbs-up never needs a rationale.

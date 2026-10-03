@@ -3,10 +3,10 @@ Here is the complete, faithful English translation of your prompt, maintaining a
 Project Context
 This is a take-home assignment for the position of GenAI & Competitive Intelligence Engineer at JFrog. The evaluator is your direct hiring manager. The manager estimated that this task requires about two days of work.
 
-The Goal: Production-quality code, thoroughly documented, with clear architectural reasoning—not "the maximum number of features," but mature engineering judgment.
+The Goal: Production-quality code, thoroughly documented, with clear architectural reasoning-not "the maximum number of features," but mature engineering judgment.
 
 The Assignment (JFrog Home Assignment)
-Stage 1 – Competitive Intelligence Tool
+Stage 1 - Competitive Intelligence Tool
 A system that delivers daily updates on industry news and insights and compares JFrog against its main competitors.
 
 Required Deliverables
@@ -24,8 +24,8 @@ A README.md with execution instructions
 
 Readiness to present the solution to a non-technical audience in English
 
-Suggested Architecture (Keep it simple—do not overengineer)
-Ingestion: RSS / Blogs / Release Notes for JFrog and 3–4 competitors, configured via a file list.
+Suggested Architecture (Keep it simple-do not overengineer)
+Ingestion: RSS / Blogs / Release Notes for JFrog and 3-4 competitors, configured via a file list.
 
 Daily Execution: GitHub Actions cron or a simple scheduler.
 
@@ -52,8 +52,8 @@ Cost and rate-limiting controls.
 
 Every claim must include a source link to mitigate hallucinations.
 
-Key Presentation Point (Crucial—Include in README, DECISIONS.md, and Presentation Script)
-In the future, users will not manually adjust weights. Instead, they will provide feedback or correct an item's rating with a brief rationale (e.g., "Not relevant because..."), and an automated feedback loop will ingest this feedback to continuously adjust weights (and potentially refine prompts) automatically—identical in principle to a lead scoring feedback loop.
+Key Presentation Point (Crucial-Include in README, DECISIONS.md, and Presentation Script)
+In the future, users will not manually adjust weights. Instead, they will provide feedback or correct an item's rating with a brief rationale (e.g., "Not relevant because..."), and an automated feedback loop will ingest this feedback to continuously adjust weights (and potentially refine prompts) automatically-identical in principle to a lead scoring feedback loop.
 
 Built Now (Small & Cost-Effective Infrastructure)
 A feedback table in SQLite: item ID, original score, corrected score / 👍👎, optional text rationale, timestamp.
@@ -71,7 +71,7 @@ Classification evaluation test set (Eval suite)
 
 Additional ingestion sources
 
-Stage 2 – DevOps
+Stage 2 - DevOps
 Fork jfrog_task.
 
 Scan with JFrog Xray.
@@ -87,20 +87,20 @@ Build a Docker image, push it to Artifactory, and publish Build Info using publi
 Provide a step-by-step breakdown of every command used and what it does.
 
 Approved Decisions for Stage 1
-(Follow these strictly; changes require explicit confirmation)
+(Follow these strictly, changes require explicit confirmation)
 
 Tracked Competitors (Configurable file list, not hardcoded)
 Core: Sonatype, GitHub, GitLab, Snyk
 
 Secondary / Optional: Cloudsmith, Harness
 
-AWS & GCP Registries: Not tracked as discrete entities; referenced only as contextual background in comparison views.
+AWS & GCP Registries: Not tracked as discrete entities, referenced only as contextual background in comparison views.
 
 Note: This list was established based on third-party aggregator research and represents a documented engineering judgment in DECISIONS.md.
 
 Data Sources
 Official blogs, release notes / changelogs, quarterly financial reports (for publicly traded JFrog and GitLab), security research blogs, DevOps news outlets, pricing pages (to detect changes), and open job postings as strategic signals.
-Requirement: Verify all feed URLs; do not invent mock URLs.
+Requirement: Verify all feed URLs, do not invent mock URLs.
 
 Hallucination Prevention
 Every claim in a news item or comparison matrix must include a link to its source and a brief quote. If no source exists, display "Unknown" rather than generating claims from model memory. The comparison matrix is constructed exclusively from official product pages.
@@ -115,7 +115,7 @@ A pre-populated SQLite database with a few days of history (seed data) to ensure
 LLM Integration
 Model name and provider must reside strictly in configuration files (allowing one-line model switching). Final model selection and cost tradeoffs are evaluated separately. Design the system to ensure seamless provider swapping.
 
-Streamlit UI – JFrog Design System
+Streamlit UI - JFrog Design System
 Tone & Aesthetic: High-tech, dark, modern.
 
 Design tokens were estimated from official site screenshots (place these in a centralized CSS variables / theme file).
@@ -141,16 +141,16 @@ Glassmorphism Panel: #14243D to #1E2D3E
 
 Category & Status Badges: Blue #0157A0, Purple #8603A3, Dark Green #025803
 
-Text: White #FFFFFF; Secondary Text: Slate-Gray #8C9FA4
+Text: White #FFFFFF, Secondary Text: Slate-Gray #8C9FA4
 
 Top Banner Gradient: Green #3EAF57 → Blue #21558A
 
 Form & Feel
-Pill-shaped buttons and tabs (border-radius: 9999px). Primary: solid green; Secondary: thin white outline.
+Pill-shaped buttons and tabs (border-radius: 9999px). Primary: solid green, Secondary: thin white outline.
 
-Cards: Large border radius (24–28px), 1px slate-gray border, semi-transparent background ("glassmorphism"), subtle depth layering.
+Cards: Large border radius (24-28px), 1px slate-gray border, semi-transparent background ("glassmorphism"), subtle depth layering.
 
-Small, colorful chips/badges for status, competitor, and score. JFrog is always green; each competitor gets a dedicated accent color.
+Small, colorful chips/badges for status, competitor, and score. JFrog is always green, each competitor gets a dedicated accent color.
 
 Dual-color main header (half green, half white). Green hyperlinks with trailing chevron (›).
 
@@ -160,10 +160,10 @@ Relevance score presented as a ring or glowing bar rather than plain text.
 
 Clean background with a subtle mesh/gradient pattern. Do not copy official logos, illustrations, or graphics.
 
-Subtle animations only (hover, fade-in)—no flickering or visual noise.
+Subtle animations only (hover, fade-in)-no flickering or visual noise.
 
 Typography
-Google Font Open Sans. Headings in 600–700 weight, body in 400, structured scale hierarchy.
+Google Font Open Sans. Headings in 600-700 weight, body in 400, structured scale hierarchy.
 
 Streamlit Implementation
 .streamlit/config.toml configuring dark mode theme parameters (backgroundColor, secondaryBackgroundColor, primaryColor, textColor, font).
@@ -182,7 +182,7 @@ Clean, spacious, and legible. Prioritize clarity over complex visual effects.
 
 Model Context Protocol (MCP) Integration Strategy
 Ingestion Pipeline
-Do not use MCP inside the main ingestion pipeline; standard Python code is simpler and more robust.
+Do not use MCP inside the main ingestion pipeline, standard Python code is simpler and more robust.
 
 Optional Bonus Capability
 Once core functionality is solid, build a small, read-only MCP server exposing three tools over the underlying SQLite database:
@@ -228,7 +228,7 @@ Complete setup and execution instructions (including dependency installation and
 
 Primary architectural decisions and rationale (the "why" is more important than the "what").
 
-A concise Security Considerations section (3–5 lines) detailing implemented controls and future hardening steps.
+A concise Security Considerations section (3-5 lines) detailing implemented controls and future hardening steps.
 
 Honest documentation of known limitations and features you would build with more time.
 
@@ -258,7 +258,7 @@ Suitable candidates include self-contained capabilities like knowledge base retr
 Document this evaluation explicitly before implementation: "I propose wrapping X as an MCP server because Y, compared to a standard Python module." Document the final choice (and reasons if rejected) in DECISIONS.md.
 
 Architectural Decision Log (DECISIONS.md)
-Maintain a DECISIONS.md file at the root of the project. Whenever a key decision is made—architectural, library selection, workflow pivot, or non-trivial fix—update this file immediately.
+Maintain a DECISIONS.md file at the root of the project. Whenever a key decision is made-architectural, library selection, workflow pivot, or non-trivial fix-update this file immediately.
 
 Entry Format (Chronological, newest at the top):
 Markdown
@@ -270,7 +270,7 @@ Markdown
 
 **Rationale:** Primary driver (Performance, Simplicity, Scale, Cost/Latency, Security)
 
-**How to Explain in an Interview (20–30 Seconds Verbal):**
+**How to Explain in an Interview (20-30 Seconds Verbal):**
 > Concise, spoken response tailored for an interviewer
 
 **JFrog Product Connection (If applicable):**
@@ -278,7 +278,7 @@ How a production JFrog product (Xray / Curation / MCP Registry / AppTrust) would
 Panel Presentation & Interview Readiness
 The next stage requires presenting this solution to a 4-person technical panel. You must be prepared to confidently explain the architecture, tool selections, trade-offs, and future improvements.
 
-Every library and module requires a 1–2 sentence rationale, including one rejected alternative.
+Every library and module requires a 1-2 sentence rationale, including one rejected alternative.
 
 Minimize Abstraction: Avoid complex design patterns unless strictly necessary.
 
@@ -288,13 +288,13 @@ Code Quality: Use type hints and concise docstrings. Comments must explain why, 
 
 Presentation Preparation File (PRESENTATION_PREP.md): Generated upon task completion, including:
 
-A 7–10 minute presentation script (Problem, Strategy, Architecture, Key Decisions).
+A 7-10 minute presentation script (Problem, Strategy, Architecture, Key Decisions).
 
 A live demo outline and contingency plan for failure scenarios.
 
-8–10 anticipated panel questions (Architecture, Security, Scaling, Costs) with concise answers.
+8-10 anticipated panel questions (Architecture, Security, Scaling, Costs) with concise answers.
 
-3–4 honest "What I would improve with more time" points.
+3-4 honest "What I would improve with more time" points.
 
 Genuine connection points to the JFrog product ecosystem.
 
@@ -310,7 +310,7 @@ Pre-Submission Checklist
 
 [ ] Can an external reviewer execute the project end-to-end following the README.md without errors?
 
-[ ] Zero secrets exist in code or Git history; .env.example is present.
+[ ] Zero secrets exist in code or Git history, .env.example is present.
 
 [ ] requirements.txt contains pinned versions.
 

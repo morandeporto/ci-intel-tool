@@ -3,8 +3,8 @@
 # Quota reset timing (do NOT hardcode into application logic):
 #   Observed Gemini free-tier error hint example (2026-10): "Please retry in 3h42m12s"
 #   / RetryInfo delay. Soft llm_usage day boundary is UTC (quota_day_timezone).
-#   Free-tier PerDay caps often roll near US Pacific midnight (~07:00–08:00 UTC).
-#   Cron below is 08:30 UTC — after a typical reset window, with a safety margin,
+#   Free-tier PerDay caps often roll near US Pacific midnight (~07:00-08:00 UTC).
+#   Cron below is 08:30 UTC - after a typical reset window, with a safety margin,
 #   and AFTER the daily ingest at 06:00 UTC so primary quota is not fought mid-day.
 #
 # Requires repository secrets (same as daily ingest):
@@ -14,7 +14,7 @@ name: Retry Pending Scoring
 
 on:
   schedule:
-    # 08:30 UTC daily — see header comment for quota-reset rationale.
+    # 08:30 UTC daily - see header comment for quota-reset rationale.
     - cron: "30 8 * * *"
   workflow_dispatch:
 
@@ -46,7 +46,7 @@ jobs:
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
           TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
         run: |
-          if [ -z "$TURSO_DATABASE_URL" ] || [ -z "$TURSO_AUTH_TOKEN" ]; then
+          if [ -z "$TURSO_DATABASE_URL" ] || [ -z "$TURSO_AUTH_TOKEN" ], then
             echo "TURSO_DATABASE_URL and TURSO_AUTH_TOKEN must be set as repository secrets."
             exit 1
           fi
