@@ -38,10 +38,22 @@ The app uses **Turso** when `TURSO_DATABASE_URL` + `TURSO_AUTH_TOKEN` are set in
 
 | Tab | What you get |
 |-----|----------------|
-| **Daily Digest** | Items by date (Israel today default), weight sliders, min-relevance filter, item_type filter, 👍/👎, **Run Now** |
+| **Daily Digest** | Ingestion-day filter (Israel), weight sliders, filters, 👍/👎, **Run Now** (see below) |
 | **Ask the Digest** | Light RAG: top-k news + curated comparison matrix → Gemini with citations, up to 2 session follow-ups |
 | **Comparison** | Curated capability matrix - every claim has a source link + quote, or **Unknown** |
 | **Pipeline runs** | Cron/manual run history plus per-source telemetry for the selected run |
+
+### How the Daily Digest works
+
+- **News date filter** uses the calendar day the **system ingested** the item (`ingested_at`), in **Asia/Jerusalem**. Default is Israel “today”; if that day is empty, the UI falls back to the latest day that has items.
+- The **card** still shows the article’s **published** timestamp (Israel local), separately from the filter day.
+- **Item type** filter: All / competitor / emerging / industry.
+- **Minimum relevance** slider (default **2.5**): hides scored items below the threshold.
+- **Show unscored** toggle (off by default): reveals `pending_scoring` / fallback / null-score rows that wait for Gemini.
+- **Sort:** Creation date (default, newest ingest first) or Relevance.
+- **Pagination:** 10 items per page.
+- **Run Now** uses `ui_run_now_limit` from `config/model.yaml` (default **10**, below cron’s `max_items_per_run: 20`) so a demo click cannot burn the full free-tier daily budget in one shot.
+- Weight sliders recalculate totals from stored dimension scores (no LLM re-query); **Save weights** persists to the DB for all reviewers on Turso.
 
 ### Optional shared database (Turso)
 
@@ -76,6 +88,8 @@ python -m src.pipeline.run_daily
 python -m src.pipeline.run_daily --trigger cron
 python -m src.pipeline.run_daily --limit 40          # can raise the cap for a run
 python -m src.pipeline.run_daily --backfill-days 7 --limit 80
+python -m src.pipeline.run_daily --rescore-fallbacks
+python -m src.pipeline.run_daily --use-fallback-model --limit 20
 python -m src.pipeline.run_daily --db data/ci_intel.db
 ```
 
@@ -83,17 +97,27 @@ python -m src.pipeline.run_daily --db data/ci_intel.db
 |------|---------|
 | `--dry-run` | Fetch + freshness + gate + select, no LLM, no writes |
 | `--trigger manual\|cron` | Stored on `pipeline_runs` (default: `manual`) |
-| `--limit N` | Selection/classify cap for this run (overrides `max_items_per_run: 20`) |
+| `--limit N` | Selection/classify (or rescore) cap for this run (overrides `max_items_per_run: 20`) |
 | `--backfill-days N` | Widen freshness window to N days (real ingest, same gate/selection) |
+| `--rescore-fallbacks` | Re-classify `pending_scoring` / `is_fallback` items only (no feed fetch) |
+| `--use-fallback-model` | Run the whole job on `fallback_model` from `config/model.yaml` |
 | `--db PATH` | Force local SQLite path (skips Turso) |
 
 Requires `GEMINI_API_KEY` for live classification. Writes to **Turso** when configured, else `data/ci_intel.db`.
 
+Live process exit codes: **1 only when `status=failed`**. `degraded` exits **0** (on GitHub Actions it also prints `::warning::Run degraded: …`). Rescore-only already treated quota/`degraded` as non-fatal.
+
 ### Gate and selection (config-driven)
 
 - **Freshness:** `window_hours: 48` in `config/model.yaml`. Future-dated items ignored, missing dates logged.
-- **Gate:** `gate: "off"` for official/emerging, `gate: "strict"` for industry/community (`config/relevance.yaml` strong keywords, weak alone never pass). Maintenance title patterns excluded for all sources.
+- **Gate:** `gate: "off"` for official/emerging, `gate: "strict"` for industry/community (`config/relevance.yaml` strong keywords). Maintenance title patterns excluded for all sources.
 - **Selection:** top 3 per source, reserved slots official 8 / emerging 4 / industry+community 6, unused slots spill, cap-skipped items are **not** stored.
+
+### Scoring metadata and quotas
+
+- Each newly classified item stores **`scored_by_model`** (exact Gemini model id) and **`rubric_version`** (from `config/model.yaml`, currently `2026-10-v2`). Bumping `rubric_version` does **not** rescore old rows - only new classifications get the new stamp.
+- **Soft vs hard quota:** `llm_usage` + `model_daily_limits` are soft process budgets. Google’s free-tier **PerDay** error is the hard stop. Mid-run PerDay leaves remaining selected items as `pending_scoring` (not mid-score fallback); the pipeline may switch once to `fallback_model` when configured.
+- **Nightly retry:** `.github/workflows/retry_pending.yml` at **08:30 UTC** runs `--rescore-fallbacks` (shared concurrency group with daily ingest).
 
 ---
 
@@ -134,7 +158,7 @@ config/*.yaml   competitors, sources, relevance, weights, model, comparison
 
 | Decision | Why |
 |----------|-----|
-| **Gemini** (`gemini-3.8-flash` in `config/model.yaml`) | Free-tier friendly for a ~2-day take-home, model id lives only in config for one-line swaps |
+| **Gemini models in config** (`pipeline_model`, `fallback_model`, `ask_model`) | Free-tier friendly for a ~2-day take-home; model **ids** swap in YAML (provider abstraction is Future Work - see limitations) |
 | **Weights in code, not in the LLM** | Dimension scores (1-5) are stored, retuning weights needs no re-query, **Save weights** persists to DB |
 | **Turso for shared demo, Postgres for production** | Shared reviewers now, managed Postgres if this were a real product |
 | **Light RAG Ask tab** | Retrieve-from-SQLite + curated comparison matrix → Gemini, max 2 follow-ups per session thread |
@@ -154,10 +178,10 @@ Today operators can nudge ranking with weight sliders and record 👍/👎 plus 
 
 ## Security Considerations
 
-- Untrusted RSS text is isolated in LLM prompts behind `<<<UNTRUSTED_CONTENT>>>` … `<<<END_UNTRUSTED_CONTENT>>>` delimiters (prompt-injection awareness).
+- Untrusted RSS text is isolated in LLM prompts behind `<<<UNTRUSTED_CONTENT>>>` … `<<<END_UNTRUSTED_CONTENT>>>` delimiters. This is **delimiter-based awareness**, not a guarantee the model will ignore injected instructions.
 - No hardcoded secrets: API keys live in `.env` only, `.env.example` ships placeholders, `.gitignore` blocks `.env`.
 - Comparison and news claims carry source URLs (or **Unknown**)-no claims from model memory.
-- Cost caps: `max_items_per_run`, request timeout, excerpt length, and rate-limit sleep in `config/model.yaml`.
+- Cost caps: `max_items_per_run`, `ui_run_now_limit`, soft `model_daily_limits`, request timeout, excerpt length, and rate-limit sleep in `config/model.yaml`.
 - In production, dependency scanning and package policy would use **JFrog Xray / Curation**, any future MCP tools would be vetted via a **JFrog MCP Registry** before deployment.
 
 ---
@@ -168,6 +192,7 @@ Today operators can nudge ranking with weight sliders and record 👍/👎 plus 
 |------|--------|
 | Automated weight learning from feedback | **Future Work** (table + UI + Save weights exist) |
 | Embeddings / vector DB | **Future Work** - light RAG (keyword retrieve → Gemini) is built in Ask the Digest |
+| Multi-provider LLM abstraction | **Future Work** - code path is **Gemini-only** today (`google-generativeai`); `provider:` in YAML is informational |
 | Full multi-tenant Postgres production DB | Documented as production choice, take-home uses Turso or local SQLite |
 | Slack notifications | Not built |
 | Classification eval suite | Not built (unit tests cover scoring + dedupe) |
@@ -175,6 +200,14 @@ Today operators can nudge ranking with weight sliders and record 👍/👎 plus 
 | Cloudsmith / Harness / emerging vendors | **Enabled** after feed verification (2026-10-03) |
 | CISA advisories / CRA regulation feeds | **Not in** - HTTP 403 / not CRA-specific, **Future Work adapter** |
 | The Register feed | Disabled (bot-challenge HTML to automated clients) |
+
+**Honest limits to call out in a review:**
+
+- **Gemini-only** - swapping OpenAI/Anthropic is not a one-line change yet.
+- **Prompt-injection protection** is delimiter isolation + instructions; it is not a sandbox guarantee.
+- **Comparison matrix** is curated YAML and can go **stale** until an analyst updates it.
+- **Shared demo Turso DB** holds shared digest, **weights**, and **feedback** for anyone with the secrets - no per-user auth.
+- **Community feeds** (HN via hnrss.org) can 5xx or go quiet; they are `required: false` so soft failures do not fail the whole run.
 
 ### Challenges and pitfalls
 
@@ -191,7 +224,7 @@ Today operators can nudge ranking with weight sliders and record 👍/👎 plus 
 | Future-dated status items | Status feeds sometimes post future maintenance windows | Drop `published_at > now` |
 | Huge archives | `snyk.io/blog/feed/` has ~1670 historical items | Parse/normalize **only in-window** entries before selection |
 | Feeds that do not exist | Guessed `/blog/feed` paths 404, IR/CISA 403 | Verify with `scripts/verify_feeds.py`, disable with dated YAML notes |
-| Fallback / silent success | Model outages could look like a green run | `is_fallback` flag, cron fails if **every** selected item falls back, high fallback → `degraded` |
+| Fallback / silent success | Model outages could look like a green run | `is_fallback` flag; **every** selected item falling back → `failed` (exit 1); high fallback → `degraded` (exit 0 + GHA `::warning::`) |
 
 ### Why not every source type from the brief - and how we'd ship them in production
 
@@ -224,12 +257,19 @@ The Streamlit app **emulates** a JFrog-like dark aesthetic (navy `#070B19`, gree
 
 ## Daily cron (GitHub Actions)
 
-Workflow: [`.github/workflows/daily_ingest.yml`](.github/workflows/daily_ingest.yml)
+**Daily ingest:** [`.github/workflows/daily_ingest.yml`](.github/workflows/daily_ingest.yml)
 
 - Schedule: **06:00 UTC daily** + manual `workflow_dispatch`
-- Pings Turso, then runs `python -m src.pipeline.run_daily --trigger cron` writing to Turso
-- Fails the job if Turso is unreachable or every model call falls back
+- Pings Turso, then runs `python -m src.pipeline.run_daily --trigger cron`
+- Fails the job if Turso is unreachable or the process exits non-zero (`status=failed`, e.g. every selected item fell back). `degraded` exits 0 with a `::warning::` annotation.
 - Optional local SQLite artifact upload is **debug-only** (`if-no-files-found: ignore`)
+
+**Nightly retry:** [`.github/workflows/retry_pending.yml`](.github/workflows/retry_pending.yml)
+
+- Schedule: **08:30 UTC daily** + `workflow_dispatch`
+- Runs `python -m src.pipeline.run_daily --rescore-fallbacks --trigger cron`
+- Shares concurrency group `ci-intel-pipeline` with daily ingest (no overlap)
+- Quota/`degraded` during rescore exits 0 (items stay `pending_scoring` for the next night)
 
 **Required repository secrets:** `GEMINI_API_KEY`, `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`.
 
@@ -249,16 +289,19 @@ per-source/kind selection, config loading, schema migration, and LLM parse helpe
 ## Project layout (high level)
 
 ```
-config/           competitors, sources, weights, model, comparison
-data/             schema.sql, ci_intel.db (gitignored, created at runtime)
-scripts/          verify_feeds.py, diagnose_fetch.py
-src/ingest/       RSS fetch + normalize
-src/process/      dedupe, LLM classify, scoring
-src/pipeline/     run_daily orchestrator
-src/db/           SQLite connection, models, repository
-src/services/     digest, comparison, feedback (UI-agnostic)
-src/ui/           Streamlit app + styles.css
-.github/workflows daily_ingest.yml
+config/                 competitors.yaml, sources.yaml, relevance.yaml,
+                        weights.yaml, model.yaml, comparison.yaml
+data/                   schema.sql, ci_intel.db (gitignored, created at runtime)
+scripts/                verify_feeds.py, diagnose_fetch.py, backfill_report.py,
+                        list_gemini_models.py, compare_models.py
+src/ingest/             RSS fetch + normalize
+src/process/            dedupe, freshness, gate, selection, LLM classify/quota,
+                        scoring, rescore helpers
+src/pipeline/           run_daily orchestrator
+src/db/                 SQLite/Turso connection, migrate, models, repository
+src/services/           digest.py, ask_digest.py, comparison.py, feedback.py, weights.py
+src/ui/                 Streamlit app, components, styles.css, assets/
+.github/workflows/      daily_ingest.yml (06:00 UTC), retry_pending.yml (08:30 UTC)
 ```
 
 ---
