@@ -387,6 +387,22 @@ div[data-testid="column"] div.stButton > button {
   margin-bottom: 0.25rem;
 }
 .ci-badge-category { background: var(--ci-badge-blue); }
+.ci-badge-item-type { background: var(--ci-badge-purple); }
+.ci-badge-not-scored {
+  background: #333642;
+  color: #8C9FA4;
+  border: 1px solid #8C9FA4;
+}
+.ci-card-implication {
+  margin: 0.35rem 0 0.5rem;
+  color: var(--ci-text-secondary);
+  font-size: 0.92rem;
+  line-height: 1.45;
+}
+.ci-implication-label {
+  color: #FFFFFF;
+  font-weight: 600;
+}
 
 .ci-score-wrap {
   display: flex;

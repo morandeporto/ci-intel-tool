@@ -90,14 +90,19 @@ def list_digest(
 
     scored_pairs: list[tuple[str, dict[str, int]]] = []
     for row in rows:
+        row["is_fallback"] = bool(row.get("is_fallback"))
         dims = _dimensions_from_row(row)
-        if dims is not None:
+        # Fallback rows are stored without ranking totals / usable scores.
+        if dims is not None and not row["is_fallback"]:
             scored_pairs.append((row["id"], dims))
 
     if scored_pairs:
         recalculated = dict(recalculate_scores(scored_pairs, weights))
         for row in rows:
-            if row["id"] in recalculated:
+            if row["is_fallback"]:
+                row["relevance_score"] = None
+                row["dimensions"] = None
+            elif row["id"] in recalculated:
                 row["relevance_score"] = recalculated[row["id"]]
                 row["dimensions"] = _dimensions_from_row(row)
             else:
@@ -106,7 +111,11 @@ def list_digest(
             repo.update_relevance_scores(recalculated.items())
     else:
         for row in rows:
-            row["dimensions"] = _dimensions_from_row(row)
+            if row["is_fallback"]:
+                row["relevance_score"] = None
+                row["dimensions"] = None
+            else:
+                row["dimensions"] = _dimensions_from_row(row)
 
     if sort_by == "relevance":
         rows.sort(
@@ -127,7 +136,13 @@ def list_digest(
 def digest_kpis(repo: Repository, items: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     """Aggregate KPI numbers for the Daily Digest header."""
     items = items if items is not None else list_digest(repo)
-    scores = [float(i["relevance_score"]) for i in items if i.get("relevance_score") is not None]
+    # Exclude fallback / unscored rows from average and high-score KPIs.
+    scored_items = [
+        i
+        for i in items
+        if i.get("relevance_score") is not None and not i.get("is_fallback")
+    ]
+    scores = [float(i["relevance_score"]) for i in scored_items]
     latest_run = repo.get_latest_run()
     return {
         "item_count": len(items),
@@ -136,6 +151,7 @@ def digest_kpis(repo: Repository, items: list[dict[str, Any]] | None = None) -> 
         "feedback_count": len(repo.list_feedback()),
         "latest_run_status": latest_run["status"] if latest_run else None,
         "latest_run_at": latest_run["started_at"] if latest_run else None,
+        "fallback_count": sum(1 for i in items if i.get("is_fallback")),
     }
 
 

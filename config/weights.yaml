@@ -8,7 +8,10 @@ dimensions:
     description: Direct relevance to JFrog's market, products, or customers.
   competitor_signal:
     weight: 0.25
-    description: Strength of competitive move from a tracked competitor.
+    description: >
+      Competitive or market pressure relevant to JFrog (vendor moves, emerging tools,
+      ecosystem/regulatory shifts). Not limited to named tracked competitors.
+      UI label: "Market and competitive pressure".
   strategic_impact:
     weight: 0.25
     description: Long-term strategic / platform impact vs tactical noise.

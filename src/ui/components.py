@@ -79,17 +79,26 @@ def render_kpi(value: str, label: str, *, glow: bool = False) -> str:
     """
 
 
-def render_score_ring(score: float | None) -> str:
-    if score is None:
-        pct = 0
-        label = "—"
-    else:
-        pct = max(0, min(100, int(round((float(score) / SCORE_MAX) * 100))))
-        label = f"{float(score):.2f}"
+DIM_CHIP_LABELS = {
+    "jfrog_relevance": "JFrog relevance",
+    "competitor_signal": "Market and competitive pressure",
+    "strategic_impact": "Strategic impact",
+    "freshness": "Freshness",
+    "market_visibility": "Market visibility",
+}
+
+
+def render_not_scored_badge() -> str:
+    return '<div class="ci-score-wrap"><span class="ci-badge ci-badge-not-scored">Not scored</span></div>'
+
+
+def render_score_ring(score: float | None, *, is_fallback: bool = False) -> str:
+    if is_fallback or score is None:
+        return render_not_scored_badge()
+    pct = max(0, min(100, int(round((float(score) / SCORE_MAX) * 100))))
+    label = f"{float(score):.2f}"
     # Inline conic-gradient (no CSS vars) — Streamlit sanitizers often strip `--pct`.
-    ring_bg = (
-        f"background:conic-gradient(#40BE46 {pct}%,#333642 0);"
-    )
+    ring_bg = f"background:conic-gradient(#40BE46 {pct}%,#333642 0);"
     return (
         f'<div class="ci-score-wrap">'
         f'<div class="ci-score-ring" style="{ring_bg}">'
@@ -97,6 +106,14 @@ def render_score_ring(score: float | None) -> str:
         f"</div>"
         f'<div class="ci-score-label">relevance</div>'
         f"</div>"
+    )
+
+
+def render_item_type_badge(item_type: str | None) -> str:
+    if not item_type:
+        return ""
+    return (
+        f'<span class="ci-badge ci-badge-item-type">{_e(str(item_type))}</span>'
     )
 
 
@@ -134,6 +151,9 @@ def render_news_card(item: dict[str, Any]) -> str:
         safe_href = html.escape(url, quote=True)
     competitor = item.get("competitor") or "industry"
     category = item.get("category")
+    item_type = item.get("item_type")
+    implication = item.get("jfrog_implication") or ""
+    is_fallback = bool(item.get("is_fallback"))
     score = item.get("relevance_score")
     published = format_israel_time(
         item.get("published_at") or item.get("ingested_at")
@@ -141,12 +161,20 @@ def render_news_card(item: dict[str, Any]) -> str:
 
     dims = item.get("dimensions") or {}
     dim_html = ""
-    if dims:
+    if dims and not is_fallback:
         chips = "".join(
-            f'<span class="ci-dim-chip">{_e(k.replace("_", " "))}: {_e(v)}</span>'
+            f'<span class="ci-dim-chip">'
+            f"{_e(DIM_CHIP_LABELS.get(k, k.replace('_', ' ')))}: {_e(v)}</span>"
             for k, v in dims.items()
         )
         dim_html = f'<div class="ci-dims">{chips}</div>'
+
+    implication_html = ""
+    if implication:
+        implication_html = (
+            f'<p class="ci-card-implication"><span class="ci-implication-label">'
+            f"JFrog implication:</span> {_e(implication)}</p>"
+        )
 
     link_html = ""
     if safe_href:
@@ -155,16 +183,21 @@ def render_news_card(item: dict[str, Any]) -> str:
             f"Source <span class=\"ci-chevron\">›</span></a>"
         )
 
-    score_html = render_score_ring(float(score) if score is not None else None)
+    score_html = render_score_ring(
+        float(score) if score is not None else None,
+        is_fallback=is_fallback,
+    )
     # Single-line outer structure so Streamlit does not fragment the card.
     return (
         f'<div class="ci-card">'
         f'<div class="ci-card-score">{score_html}</div>'
         f'<div class="ci-card-main">'
         f"{render_competitor_badge(str(competitor))}"
+        f"{render_item_type_badge(str(item_type) if item_type else None)}"
         f"{render_category_badge(category)}"
         f'<h3 class="ci-card-title">{title}</h3>'
         f'<p class="ci-card-summary">{summary}</p>'
+        f"{implication_html}"
         f"{link_html}"
         f'<div class="ci-muted ci-card-date">{_e(published)} (Israel)</div>'
         f"{dim_html}"

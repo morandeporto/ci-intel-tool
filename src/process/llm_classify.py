@@ -10,7 +10,8 @@ from __future__ import annotations
 import json
 import os
 import time
-from typing import Any
+from datetime import datetime, timezone
+from typing import Any, Literal
 
 from dotenv import load_dotenv
 from pydantic import BaseModel, ValidationError, field_validator
@@ -39,13 +40,18 @@ ALLOWED_CATEGORIES = (
     "other",
 )
 
+ALLOWED_ITEM_TYPES = ("competitor", "emerging", "industry")
+ItemType = Literal["competitor", "emerging", "industry"]
+
+FALLBACK_IMPLICATION = "Not analyzed (model unavailable)"
+
 
 class ClassifyError(Exception):
     """Raised when classification cannot produce a validated result."""
 
 
 class ClassificationResult(BaseModel):
-    """Structured LLM output: summary + category + five 1–5 dimension scores.
+    """Structured LLM output: summary + category + dimensions + CI fields.
 
     Keep Field constraints minimal: Gemini's response_schema rejects JSON-Schema
     keywords like maxLength that Pydantic would otherwise emit.
@@ -53,18 +59,32 @@ class ClassificationResult(BaseModel):
 
     summary: str
     category: str
+    item_type: str
+    jfrog_implication: str
     jfrog_relevance: int
     competitor_signal: int
     strategic_impact: int
     freshness: int
     market_visibility: int
 
-    @field_validator("summary", "category", mode="before")
+    @field_validator("summary", "category", "jfrog_implication", mode="before")
     @classmethod
     def _nonempty_str(cls, value: Any) -> str:
         if not isinstance(value, str) or not value.strip():
             raise ValueError("must be a non-empty string")
         return value.strip()
+
+    @field_validator("item_type", mode="before")
+    @classmethod
+    def _item_type(cls, value: Any) -> str:
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError("item_type must be a non-empty string")
+        normalized = value.strip().lower()
+        if normalized not in ALLOWED_ITEM_TYPES:
+            raise ValueError(
+                f"item_type must be one of {ALLOWED_ITEM_TYPES}, got {value!r}"
+            )
+        return normalized
 
     @field_validator(*DIMENSION_NAMES, mode="before")
     @classmethod
@@ -84,11 +104,27 @@ class ClassificationResult(BaseModel):
         return {name: getattr(self, name) for name in DIMENSION_NAMES}
 
 
-def fallback_classification(entry: NormalizedEntry) -> ClassificationResult:
+def hint_item_type(entry: NormalizedEntry, source_kind: str | None = None) -> ItemType:
+    """Best-effort item_type when the model is unavailable."""
+    kind = (source_kind or "").strip().lower()
+    if kind == "emerging":
+        return "emerging"
+    if kind in ("industry", "community"):
+        return "industry"
+    if entry.competitor and entry.competitor not in ("industry", ""):
+        return "competitor"
+    return "industry"
+
+
+def fallback_classification(
+    entry: NormalizedEntry,
+    *,
+    source_kind: str | None = None,
+) -> ClassificationResult:
     """Generic mid-score result when the LLM call fails.
 
     Keeps the daily pipeline moving: item is still stored with average dimension
-    scores (3/5) and a placeholder summary derived from the title only.
+    scores (3/5) and placeholders. UI treats is_fallback rows as "Not scored".
     """
     title = (entry.title or "Untitled item").strip() or "Untitled item"
     summary = (
@@ -99,6 +135,8 @@ def fallback_classification(entry: NormalizedEntry) -> ClassificationResult:
     return ClassificationResult(
         summary=summary,
         category="other",
+        item_type=hint_item_type(entry, source_kind=source_kind),
+        jfrog_implication=FALLBACK_IMPLICATION,
         jfrog_relevance=mid,
         competitor_signal=mid,
         strategic_impact=mid,
@@ -111,6 +149,7 @@ def build_classification_prompt(
     entry: NormalizedEntry,
     *,
     max_excerpt_chars: int,
+    today_utc: str | None = None,
 ) -> str:
     """Build a prompt that isolates untrusted web content from instructions.
 
@@ -120,15 +159,47 @@ def build_classification_prompt(
     """
     excerpt = (entry.raw_excerpt or "")[:max_excerpt_chars]
     categories = ", ".join(ALLOWED_CATEGORIES)
+    today = today_utc or datetime.now(timezone.utc).date().isoformat()
+    published = entry.published_at or "unknown"
     return f"""You are a competitive-intelligence analyst for JFrog (software supply chain,
 artifact management, DevOps security). Classify ONE news item.
 
-Return ONLY JSON matching the schema. Score each dimension as an integer from 1 to 5:
-- jfrog_relevance: how directly this matters to JFrog products/customers/positioning
-- competitor_signal: strength of a move by a tracked competitor (or industry pressure)
-- strategic_impact: long-term platform/strategy impact vs short-term noise
-- freshness: recency and urgency of the signal
-- market_visibility: how visible/notable this is in the broader market narrative
+Return ONLY JSON matching the schema.
+
+SCORING CALIBRATION (critical):
+Most items should score 2-3. Reserve 5 for rare, clearly major events. Do not inflate scores.
+
+Score each dimension as an integer from 1 to 5:
+
+jfrog_relevance — how directly this matters to JFrog products, customers, or positioning
+(industry-wide supply-chain or SBOM events can be 4–5 when impact is clear):
+  1 = unrelated noise; 3 = indirectly useful context; 5 = direct product/customer impact
+
+competitor_signal — intensity of competitive OR market pressure relevant to JFrog
+(vendor product moves, emerging-tool adoption, ecosystem shifts, or regulation that
+changes buyer expectations). Do NOT require a named tracked competitor. A major npm
+supply-chain attack or new SBOM mandate can score 4–5 even when competitor metadata
+is "industry". Score 1 only for noise with no competitive/market pressure:
+  1 = no market/competitive pressure; 3 = notable but routine signal; 5 = major shift
+
+strategic_impact — lasting platform/strategy impact vs short-term noise
+(industry/emerging items are NOT capped below competitor launches when impact is real):
+  1 = tactical/ephemeral; 3 = meaningful medium-term; 5 = lasting platform/strategy shift
+
+freshness — recency and urgency (use published_at vs today_utc below; do not invent dates):
+  1 = stale or undated with no urgency; 3 = timely routine update; 5 = breaking / highly urgent
+
+market_visibility — how visible/notable this is in the broader market narrative:
+  1 = obscure niche note; 3 = visible in specialist channels; 5 = widely discussed / headline
+
+Also return:
+- item_type: one of "competitor" | "emerging" | "industry"
+  (hint from source metadata, but judge from the article content;
+   e.g. a Snyk launch → competitor; Chainguard/Socket tooling → emerging;
+   SBOM regulation or npm attack research → industry)
+- jfrog_implication: 1–2 sentences on what this means for JFrog, based ONLY on the
+  article excerpt. Do not state what JFrog or competitor products do beyond what the
+  excerpt says. If unclear from the excerpt, say so briefly — do not invent claims.
 
 category must be one of: {categories}
 
@@ -143,7 +214,8 @@ Metadata (trusted pipeline fields, not free-form web prose):
 - competitor: {entry.competitor}
 - source_id: {entry.source_id}
 - url: {entry.url}
-- published_at: {entry.published_at or "unknown"}
+- published_at: {published}
+- today_utc: {today}
 
 <<<UNTRUSTED_CONTENT>>>
 TITLE: {entry.title}
@@ -206,7 +278,10 @@ def classify_entry(
     sleep_seconds = float(cfg.get("rate_limit_sleep_seconds", 1.0))
 
     key = api_key if api_key is not None else _require_api_key()
-    prompt = build_classification_prompt(entry, max_excerpt_chars=max_excerpt)
+    today_utc = datetime.now(timezone.utc).date().isoformat()
+    prompt = build_classification_prompt(
+        entry, max_excerpt_chars=max_excerpt, today_utc=today_utc
+    )
 
     try:
         import google.generativeai as genai
@@ -268,6 +343,7 @@ def classify_entry_with_fallback(
     *,
     model_config: dict[str, Any] | None = None,
     api_key: str | None = None,
+    source_kind: str | None = None,
 ) -> tuple[ClassificationResult, bool, str | None]:
     """Classify via Gemini; on any ClassifyError return mid-score fallback.
 
@@ -277,6 +353,14 @@ def classify_entry_with_fallback(
     try:
         return classify_entry(entry, model_config=model_config, api_key=api_key), False, None
     except ClassifyError as exc:
-        return fallback_classification(entry), True, str(exc)
+        return (
+            fallback_classification(entry, source_kind=source_kind),
+            True,
+            str(exc),
+        )
     except Exception as exc:  # noqa: BLE001 — provider/network errors → fallback
-        return fallback_classification(entry), True, str(exc)
+        return (
+            fallback_classification(entry, source_kind=source_kind),
+            True,
+            str(exc),
+        )

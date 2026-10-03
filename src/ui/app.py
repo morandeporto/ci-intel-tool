@@ -50,7 +50,7 @@ from src.ui.pending_actions import (
 CSS_PATH = Path(__file__).resolve().parent / "styles.css"
 DIM_LABELS = {
     "jfrog_relevance": "JFrog relevance",
-    "competitor_signal": "Competitor signal",
+    "competitor_signal": "Market and competitive pressure",
     "strategic_impact": "Strategic impact",
     "freshness": "Freshness",
     "market_visibility": "Market visibility",
@@ -305,12 +305,30 @@ def _news_date_bounds(all_items: list) -> tuple[date, date]:
     return min_day, max_day
 
 
-def _render_news_date_filter(all_items: list) -> list:
-    """Single-day calendar picker; defaults to Israel today."""
+def _latest_day_with_items(all_items: list) -> date | None:
+    days = [d for item in all_items if (d := item_news_date(item)) is not None]
+    return max(days) if days else None
+
+
+def _render_news_date_filter(all_items: list) -> tuple[list, str | None]:
+    """Single-day calendar picker; defaults to Israel today, else latest day with items."""
     today = israel_today()
     min_day, max_day = _news_date_bounds(all_items)
+    note: str | None = None
+    today_items = filter_digest_by_news_dates(all_items, [today])
+    fallback_day = _latest_day_with_items(all_items)
+
     if "digest_news_date" not in st.session_state:
-        st.session_state.digest_news_date = today
+        if today_items:
+            st.session_state.digest_news_date = today
+        elif fallback_day is not None:
+            st.session_state.digest_news_date = fallback_day
+            note = (
+                f"No items for today ({today.isoformat()} Israel). "
+                f"Showing the most recent day with news: {fallback_day.isoformat()}."
+            )
+        else:
+            st.session_state.digest_news_date = today
     else:
         current = st.session_state.digest_news_date
         if isinstance(current, date):
@@ -338,7 +356,19 @@ def _render_news_date_filter(all_items: list) -> list:
     )
     if not isinstance(selected, date):
         selected = today
-    return filter_digest_by_news_dates(all_items, [selected])
+    if (
+        note is None
+        and selected == today
+        and not today_items
+        and fallback_day is not None
+        and st.session_state.get("_digest_auto_date_note_shown")
+    ):
+        note = st.session_state.get("_digest_auto_date_note")
+    if note:
+        st.session_state["_digest_auto_date_note"] = note
+        st.session_state["_digest_auto_date_note_shown"] = True
+        st.caption(note)
+    return filter_digest_by_news_dates(all_items, [selected]), note
 
 
 def _render_digest_controls(total: int) -> tuple[int, int]:
@@ -455,16 +485,57 @@ def _render_digest_tab(repo: Repository, db_path: Path | None) -> None:
         )
 
     if not all_items:
-        st.info("No news items yet. Use **Run Now** to ingest.")
+        st.info("No news items yet. Use **Run Now** to ingest live data.")
+        if st.button("Run Now", type="primary", key="run_now_empty"):
+            queue_action("run_now")
         return
 
-    items = _render_news_date_filter(all_items)
+    items, _date_note = _render_news_date_filter(all_items)
+
+    filt_l, filt_r = st.columns([1.2, 1.5])
+    with filt_l:
+        type_options = ["All types", "competitor", "emerging", "industry"]
+        selected_type = st.selectbox(
+            "Item type",
+            type_options,
+            key="digest_item_type",
+            on_change=_on_digest_news_date_change,
+        )
+    with filt_r:
+        min_relevance = st.slider(
+            "Minimum relevance",
+            min_value=0.0,
+            max_value=5.0,
+            value=2.5,
+            step=0.1,
+            key="digest_min_relevance",
+            help=(
+                "Hide items below this score. Fallback / Not scored items are "
+                "hidden by default when the minimum is above 0."
+            ),
+            on_change=_on_digest_news_date_change,
+        )
+
+    if selected_type != "All types":
+        items = [i for i in items if (i.get("item_type") or "") == selected_type]
+
+    # Default min 2.5 hides low scores and fallback (no score) from the view.
+    visible: list = []
+    for item in items:
+        if item.get("is_fallback") or item.get("relevance_score") is None:
+            if min_relevance <= 0:
+                visible.append(item)
+            continue
+        if float(item["relevance_score"]) >= float(min_relevance):
+            visible.append(item)
+    items = visible
+
     _render_kpis(digest_kpis(repo, items))
 
     if not items:
         st.info(
-            "No news for this **News date**. "
-            "Pick another day above, or run ingestion for today."
+            "No news for this filter. "
+            "Try another date, lower Minimum relevance, or run ingestion."
         )
         return
 

@@ -73,6 +73,10 @@ def migrate_schema(conn: Any) -> list[str]:
         changes.append("news_items.item_type")
     if _add_column_if_missing(conn, "news_items", "jfrog_implication", "TEXT"):
         changes.append("news_items.jfrog_implication")
+    if _add_column_if_missing(
+        conn, "news_items", "is_fallback", "INTEGER NOT NULL DEFAULT 0"
+    ):
+        changes.append("news_items.is_fallback")
 
     if not _table_exists(conn, "source_run_stats"):
         conn.execute(

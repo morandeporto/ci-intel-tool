@@ -33,6 +33,8 @@ CREATE TABLE IF NOT EXISTS news_items (
     -- LLM fields: competitor | emerging | industry
     item_type TEXT,
     jfrog_implication TEXT,
+    -- 1 when Gemini failed and mid-score placeholders were stored
+    is_fallback INTEGER NOT NULL DEFAULT 0,
     FOREIGN KEY (run_id) REFERENCES pipeline_runs(id)
 );
 

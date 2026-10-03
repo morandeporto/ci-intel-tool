@@ -191,12 +191,12 @@ def _persist_classified(
     weights: dict[str, float],
     model_id: str,
     run_id: str,
+    is_fallback: bool = False,
 ) -> None:
-    score = weighted_score(result.dimension_dict(), weights)
+    # Fallback rows keep mid dimension scores for debugging but no ranking total.
+    score = None if is_fallback else weighted_score(result.dimension_dict(), weights)
     news_id = str(uuid4())
     now = _utc_now()
-    item_type = getattr(result, "item_type", None)
-    jfrog_implication = getattr(result, "jfrog_implication", None)
     item = NewsItem(
         id=news_id,
         title=entry.title,
@@ -212,20 +212,22 @@ def _persist_classified(
         relevance_score=score,
         run_id=run_id,
         status="classified",
-        item_type=item_type,
-        jfrog_implication=jfrog_implication,
-    )
-    dims = DimensionScores(
-        jfrog_relevance=result.jfrog_relevance,
-        competitor_signal=result.competitor_signal,
-        strategic_impact=result.strategic_impact,
-        freshness=result.freshness,
-        market_visibility=result.market_visibility,
-        model_id=model_id,
-        scored_at=now,
+        item_type=result.item_type,
+        jfrog_implication=result.jfrog_implication,
+        is_fallback=is_fallback,
     )
     news_id = repo.upsert_news_item(item)
-    repo.save_dimension_scores(news_id, dims)
+    if not is_fallback:
+        dims = DimensionScores(
+            jfrog_relevance=result.jfrog_relevance,
+            competitor_signal=result.competitor_signal,
+            strategic_impact=result.strategic_impact,
+            freshness=result.freshness,
+            market_visibility=result.market_visibility,
+            model_id=model_id,
+            scored_at=now,
+        )
+        repo.save_dimension_scores(news_id, dims)
 
 
 def run_daily(
@@ -312,8 +314,9 @@ def run_daily(
                     classify_errors.append(f"{entry.url}: filter persist failed: {exc}")
 
             for entry in selected:
+                kind = str((source_meta.get(entry.source_id) or {}).get("kind") or "")
                 result, used_fallback, err = classify_entry_with_fallback(
-                    entry, model_config=model_cfg
+                    entry, model_config=model_cfg, source_kind=kind
                 )
                 persist_model_id = (
                     f"{model_id}:fallback" if used_fallback else model_id
@@ -326,6 +329,7 @@ def run_daily(
                         weights=weights,
                         model_id=persist_model_id,
                         run_id=run_id,
+                        is_fallback=used_fallback,
                     )
                     items_scored += 1
                     if used_fallback:

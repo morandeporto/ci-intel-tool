@@ -70,3 +70,4 @@ class NewsItem:
     filter_reason: str | None = None
     item_type: str | None = None
     jfrog_implication: str | None = None
+    is_fallback: bool = False

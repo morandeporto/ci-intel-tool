@@ -16,7 +16,7 @@ NEWS_WITH_SCORES_SQL = """
     SELECT n.id, n.title, n.url, n.source_id, n.competitor, n.published_at,
            n.ingested_at, n.summary, n.category, n.raw_excerpt, n.content_hash,
            n.relevance_score, n.run_id, n.status, n.filter_reason,
-           n.item_type, n.jfrog_implication,
+           n.item_type, n.jfrog_implication, n.is_fallback,
            d.jfrog_relevance, d.competitor_signal, d.strategic_impact,
            d.freshness, d.market_visibility, d.model_id, d.scored_at
     FROM news_items n
@@ -154,12 +154,17 @@ class Repository:
         return {str(r["content_hash"]) for r in rows}
 
     def urls_missing_dimension_scores(self) -> set[str]:
-        """URLs stored without dimension_scores (failed or partial ingest)."""
+        """URLs stored without dimension_scores (failed or partial ingest).
+
+        Skips gate-filtered and fallback rows so they are not retried forever.
+        """
         cur = self.conn.execute(
             """
             SELECT n.url FROM news_items n
             LEFT JOIN dimension_scores d ON d.news_item_id = n.id
             WHERE d.news_item_id IS NULL
+              AND COALESCE(n.status, 'classified') != 'filtered'
+              AND COALESCE(n.is_fallback, 0) = 0
             """
         )
         return {str(r["url"]) for r in _rows_as_dicts(cur)}
@@ -178,7 +183,8 @@ class Repository:
                     title = ?, source_id = ?, competitor = ?, published_at = ?,
                     ingested_at = ?, summary = ?, category = ?, raw_excerpt = ?,
                     content_hash = ?, relevance_score = ?, run_id = ?,
-                    status = ?, filter_reason = ?, item_type = ?, jfrog_implication = ?
+                    status = ?, filter_reason = ?, item_type = ?, jfrog_implication = ?,
+                    is_fallback = ?
                 WHERE url = ?
                 """,
                 (
@@ -197,6 +203,7 @@ class Repository:
                     item.filter_reason,
                     item.item_type,
                     item.jfrog_implication,
+                    1 if item.is_fallback else 0,
                     item.url,
                 ),
             )
@@ -207,8 +214,8 @@ class Repository:
                 INSERT INTO news_items (
                     id, title, url, source_id, competitor, published_at, ingested_at,
                     summary, category, raw_excerpt, content_hash, relevance_score, run_id,
-                    status, filter_reason, item_type, jfrog_implication
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    status, filter_reason, item_type, jfrog_implication, is_fallback
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     item.id,
@@ -228,6 +235,7 @@ class Repository:
                     item.filter_reason,
                     item.item_type,
                     item.jfrog_implication,
+                    1 if item.is_fallback else 0,
                 ),
             )
         self.conn.commit()
@@ -275,7 +283,7 @@ class Repository:
             SELECT n.id, n.title, n.url, n.source_id, n.competitor, n.published_at,
                    n.ingested_at, n.summary, n.category, n.raw_excerpt, n.content_hash,
                    n.relevance_score, n.run_id, n.status, n.filter_reason,
-                   n.item_type, n.jfrog_implication,
+                   n.item_type, n.jfrog_implication, n.is_fallback,
                    d.jfrog_relevance, d.competitor_signal, d.strategic_impact,
                    d.freshness, d.market_visibility, d.model_id, d.scored_at
             FROM news_items n

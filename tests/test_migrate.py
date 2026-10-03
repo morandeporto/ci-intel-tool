@@ -62,6 +62,7 @@ def test_migrate_adds_columns_and_source_run_stats(tmp_path: Path) -> None:
         assert "filter_reason" in cols
         assert "item_type" in cols
         assert "jfrog_implication" in cols
+        assert "is_fallback" in cols
         assert _table_exists(conn, "source_run_stats")
         # Existing row preserved.
         row = conn.execute("SELECT title, status FROM news_items WHERE id='1'").fetchone()
