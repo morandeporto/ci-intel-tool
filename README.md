@@ -267,4 +267,3 @@ src/ui/           Streamlit app + styles.css
 ## Presentation materials
 
 - [DECISIONS.md](DECISIONS.md) — architectural decision log
-- [PRESENTATION_PREP.md](PRESENTATION_PREP.md) — 7–10 min script, demo outline, panel Q&As

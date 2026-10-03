@@ -220,3 +220,6 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Local interview notes (not part of the submitted deliverable)
+PRESENTATION_PREP.md
