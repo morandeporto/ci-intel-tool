@@ -84,13 +84,15 @@ def _weight_sum_status(total: float) -> tuple[str, str]:
 
 def _try_run_pipeline(db_path: Path | None) -> tuple[bool, str]:
     try:
-        from src.config_loader import DEFAULT_DB_PATH
+        from src.config_loader import DEFAULT_DB_PATH, load_model_config
         from src.pipeline.run_daily import run_daily
     except ImportError:
         return False, "Pipeline module is not available."
     try:
         target = None if turso_configured() else DEFAULT_DB_PATH
-        result = run_daily(trigger="manual", db_path=target, limit=10)
+        # Cap below cron max_items_per_run so a UI click cannot exhaust free-tier RPD.
+        ui_limit = max(1, int(load_model_config().get("ui_run_now_limit", 10)))
+        result = run_daily(trigger="manual", db_path=target, limit=ui_limit)
         mark_db_dirty()
         parts = [
             f"status={result.status}",

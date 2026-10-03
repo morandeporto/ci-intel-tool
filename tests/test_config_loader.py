@@ -16,6 +16,7 @@ def test_model_config_has_window_and_selection_slots() -> None:
     cfg = load_model_config()
     assert cfg["window_hours"] == 48
     assert cfg["max_items_per_run"] == 20
+    assert cfg["ui_run_now_limit"] == 10
     assert cfg["max_per_source"] == 3
     assert cfg["fetch_timeout_seconds"] == 15
     assert cfg["fetch_concurrency"] == 8
