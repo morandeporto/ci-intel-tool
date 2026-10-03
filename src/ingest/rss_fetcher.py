@@ -42,6 +42,9 @@ DEFAULT_FETCH_CONCURRENCY = 8
 # hnrss.org occasionally returns 502/503; a short backoff usually recovers.
 HN_5XX_MAX_ATTEMPTS = 3
 HN_5XX_BASE_SECONDS = 1.0
+# jfrog_blog intermittently returns HTTP 202 with an empty body.
+JFROG_EMPTY_202_ATTEMPTS = 3
+JFROG_EMPTY_202_BACKOFF_SECONDS = (5.0, 15.0)
 
 ACCEPT_HEADERS = (
     "application/rss+xml, application/atom+xml, application/xml, text/xml, */*"
@@ -54,6 +57,8 @@ class SourceFetchError:
     url: str
     message: str
     http_status: str | None = None
+    # warning = telemetry only; must not flip pipeline status to partial
+    severity: str = "error"
 
 
 @dataclass
@@ -64,6 +69,7 @@ class SourceFetchStat:
     http_status: str | None = None
     fetched: int = 0
     error: str | None = None
+    warning: str | None = None
     duration_ms: int | None = None
 
 
@@ -73,6 +79,7 @@ class FetchResult:
 
     entries: list[dict[str, Any]] = field(default_factory=list)
     errors: list[SourceFetchError] = field(default_factory=list)
+    warnings: list[SourceFetchError] = field(default_factory=list)
     source_stats: list[SourceFetchStat] = field(default_factory=list)
 
 
@@ -80,7 +87,15 @@ class FetchResult:
 class NormalizedFetchResult:
     entries: list[NormalizedEntry] = field(default_factory=list)
     errors: list[SourceFetchError] = field(default_factory=list)
+    warnings: list[SourceFetchError] = field(default_factory=list)
     source_stats: list[SourceFetchStat] = field(default_factory=list)
+
+
+def source_is_required(source: dict[str, Any]) -> bool:
+    """Sources default to required=true; community YAML sets required: false."""
+    if "required" in source:
+        return bool(source.get("required"))
+    return True
 
 
 def _fetch_timeout_seconds(timeout: float | None) -> float:
@@ -242,7 +257,52 @@ def fetch_source(
             timeout_s=timeout_s,
             source_id=source_id,
         )
+        # jfrog_blog: empty HTTP 202 is retryable (CDN/WAF flake), not a hard error.
+        if source_id == "jfrog_blog":
+            for attempt in range(JFROG_EMPTY_202_ATTEMPTS):
+                http_status = str(response.status_code)
+                body_len = len(response.content or b"")
+                if response.status_code != 202 or body_len > 0:
+                    break
+                if attempt >= JFROG_EMPTY_202_ATTEMPTS - 1:
+                    break
+                delay = JFROG_EMPTY_202_BACKOFF_SECONDS[
+                    min(attempt, len(JFROG_EMPTY_202_BACKOFF_SECONDS) - 1)
+                ]
+                logger.warning(
+                    "jfrog_blog empty HTTP 202 (attempt %s/%s); retrying in %.0fs",
+                    attempt + 1,
+                    JFROG_EMPTY_202_ATTEMPTS,
+                    delay,
+                )
+                time.sleep(delay)
+                response = _http_get_with_optional_5xx_retry(
+                    client,
+                    url,
+                    headers=headers,
+                    timeout_s=timeout_s,
+                    source_id=source_id,
+                )
         http_status = str(response.status_code)
+        # Persistent empty 202 → warning (not error); return no entries.
+        if (
+            source_id == "jfrog_blog"
+            and response.status_code == 202
+            and len(response.content or b"") == 0
+        ):
+            ms = int((time.perf_counter() - started) * 1000)
+            return (
+                [],
+                SourceFetchError(
+                    source_id,
+                    url,
+                    "Empty HTTP 202 body after retries (intermittent CDN/WAF)",
+                    http_status="202",
+                    severity="warning",
+                ),
+                "202",
+                ms,
+            )
         response.raise_for_status()
     except httpx.TimeoutException:
         ms = int((time.perf_counter() - started) * 1000)
@@ -360,11 +420,13 @@ def _fetch_one_isolated(
         )
         return [], err, stat
 
+    is_warning = bool(error and error.severity == "warning")
     stat = SourceFetchStat(
         source_id=source_id,
         http_status=http_status or (error.http_status if error else None),
         fetched=len(entries),
-        error=error.message if error else None,
+        error=None if is_warning else (error.message if error else None),
+        warning=error.message if is_warning else None,
         duration_ms=duration_ms,
     )
     return entries, error, stat
@@ -381,6 +443,7 @@ def fetch_all_sources(
 
     ``user_agent`` is ignored for per-source selection (kept for API compatibility);
     each source uses honest or browser UA from its YAML ``user_agent`` field.
+    Non-required source failures become warnings (do not affect run status).
     """
     del user_agent  # per-source UA from YAML
     sources = sources if sources is not None else enabled_sources()
@@ -402,6 +465,7 @@ def fetch_all_sources(
         for fut in as_completed(futures):
             source = futures[fut]
             source_id = str(source.get("id", "unknown"))
+            required = source_is_required(source)
             try:
                 entries, error, stat = fut.result()
             except Exception as exc:  # noqa: BLE001 — isolate pool failures
@@ -410,20 +474,53 @@ def fetch_all_sources(
                     str(source.get("url", "")),
                     f"Worker failed: {exc}",
                     http_status="exception",
+                    severity="warning" if not required else "error",
                 )
-                result.errors.append(err)
-                result.source_stats.append(
-                    SourceFetchStat(
-                        source_id=source_id,
-                        http_status="exception",
-                        fetched=0,
-                        error=err.message,
-                        duration_ms=None,
+                if err.severity == "warning":
+                    result.warnings.append(err)
+                    result.source_stats.append(
+                        SourceFetchStat(
+                            source_id=source_id,
+                            http_status="exception",
+                            fetched=0,
+                            warning=err.message,
+                            duration_ms=None,
+                        )
                     )
-                )
+                else:
+                    result.errors.append(err)
+                    result.source_stats.append(
+                        SourceFetchStat(
+                            source_id=source_id,
+                            http_status="exception",
+                            fetched=0,
+                            error=err.message,
+                            duration_ms=None,
+                        )
+                    )
                 continue
             if error:
-                result.errors.append(error)
+                # Non-required sources: demote hard errors to warnings.
+                if error.severity != "warning" and not required:
+                    error = SourceFetchError(
+                        error.source_id,
+                        error.url,
+                        error.message,
+                        http_status=error.http_status,
+                        severity="warning",
+                    )
+                    stat = SourceFetchStat(
+                        source_id=stat.source_id,
+                        http_status=stat.http_status,
+                        fetched=stat.fetched,
+                        error=None,
+                        warning=error.message,
+                        duration_ms=stat.duration_ms,
+                    )
+                if error.severity == "warning":
+                    result.warnings.append(error)
+                else:
+                    result.errors.append(error)
             result.entries.extend(entries)
             result.source_stats.append(stat)
 
@@ -462,8 +559,13 @@ def fetch_and_normalize(
         SourceFetchStat(
             source_id=stat.source_id,
             http_status=stat.http_status,
-            fetched=0 if stat.error else by_source.get(stat.source_id, 0),
+            fetched=(
+                0
+                if (stat.error or stat.warning)
+                else by_source.get(stat.source_id, 0)
+            ),
             error=stat.error,
+            warning=stat.warning,
             duration_ms=stat.duration_ms,
         )
         for stat in raw.source_stats
@@ -472,6 +574,7 @@ def fetch_and_normalize(
     return NormalizedFetchResult(
         entries=normalized,
         errors=list(raw.errors),
+        warnings=list(raw.warnings),
         source_stats=stats,
     )
 

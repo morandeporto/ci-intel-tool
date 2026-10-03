@@ -92,6 +92,7 @@ CREATE TABLE IF NOT EXISTS source_run_stats (
     selected INTEGER NOT NULL DEFAULT 0,
     classified INTEGER NOT NULL DEFAULT 0,
     error TEXT,
+    warning TEXT,
     duration_ms INTEGER,
     FOREIGN KEY (run_id) REFERENCES pipeline_runs(id)
 );

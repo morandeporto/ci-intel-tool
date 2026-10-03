@@ -686,6 +686,9 @@ def _render_runs_tab(repo: Repository) -> None:
     st.markdown('<div class="ci-section-title">Pipeline run history</div>', unsafe_allow_html=True)
     st.caption("Cron and manual ingestion runs. Times shown in Israel timezone.")
     runs = repo.list_runs(limit=30)
+    warn_counts = repo.count_source_warnings_by_run([str(r["id"]) for r in runs])
+    for r in runs:
+        r["source_warnings"] = int(warn_counts.get(str(r["id"]), 0))
     st.markdown(render_run_history(runs), unsafe_allow_html=True)
 
     if not runs:
@@ -725,6 +728,7 @@ def _render_runs_tab(repo: Repository) -> None:
                 "selected": s.get("selected"),
                 "classified": s.get("classified"),
                 "duration_ms": s.get("duration_ms"),
+                "warning": s.get("warning") or "",
                 "error": s.get("error") or "",
             }
             for s in stats

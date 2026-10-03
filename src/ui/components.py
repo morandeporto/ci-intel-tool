@@ -333,6 +333,13 @@ def render_run_history(runs: list[dict[str, Any]]) -> str:
         ok = _e(r.get("items_classified_ok") if r.get("items_classified_ok") is not None else "—")
         fallback = _e(r.get("items_fallback") if r.get("items_fallback") is not None else "—")
         retries = _e(r.get("retries_used") if r.get("retries_used") is not None else "—")
+        warn_n = int(r.get("source_warnings") or 0)
+        warn_html = (
+            f'<span class="ci-run-warn" title="Non-required source soft failures">'
+            f"{warn_n} warn</span>"
+            if warn_n
+            else '<span class="ci-muted">0</span>'
+        )
         uid = _e(r.get("id") if r.get("id") is not None else i)
         err_d_trigger, err_d_modal = _render_error_popup(r.get("error_message"), f"d-{uid}")
         err_m_trigger, err_m_modal = _render_error_popup(r.get("error_message"), f"m-{uid}")
@@ -351,6 +358,7 @@ def render_run_history(runs: list[dict[str, Any]]) -> str:
             f"<td>{fallback}</td>"
             f"<td>{retries}</td>"
             f"<td>{scored}</td>"
+            f"<td>{warn_html}</td>"
             f'<td class="ci-run-err">{err_d_trigger}</td>'
             "</tr>"
         )
@@ -367,6 +375,7 @@ def render_run_history(runs: list[dict[str, Any]]) -> str:
             f"<span>OK <strong>{ok}</strong></span>"
             f"<span>Fallback <strong>{fallback}</strong></span>"
             f"<span>Retries <strong>{retries}</strong></span>"
+            f"<span>Warnings <strong>{warn_n}</strong></span>"
             f"</div>"
             f'<div class="ci-run-card-err">Error: {err_m_trigger}</div>'
             f"</article>"
@@ -378,7 +387,7 @@ def render_run_history(runs: list[dict[str, Any]]) -> str:
           <tr>
             <th>Started (Israel)</th><th>Trigger</th><th>Status</th>
             <th>Fetched</th><th>New</th><th>OK</th><th>Fallback</th>
-            <th>Retries</th><th>Scored</th><th>Error</th>
+            <th>Retries</th><th>Scored</th><th>Warn</th><th>Error</th>
           </tr>
         </thead>
         <tbody>{"".join(rows_html)}</tbody>

@@ -159,8 +159,8 @@ class Repository:
             """
             INSERT INTO source_run_stats (
                 run_id, source_id, http_status, fetched, in_window, new,
-                passed_gate, selected, classified, error, duration_ms
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                passed_gate, selected, classified, error, warning, duration_ms
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
                 (
@@ -174,6 +174,7 @@ class Repository:
                     int(r.get("selected") or 0),
                     int(r.get("classified") or 0),
                     r.get("error"),
+                    r.get("warning"),
                     r.get("duration_ms"),
                 )
                 for r in rows
@@ -181,11 +182,32 @@ class Repository:
         )
         self.conn.commit()
 
+    def count_source_warnings_by_run(self, run_ids: list[str]) -> dict[str, int]:
+        """Return run_id -> count of source_run_stats rows with a warning."""
+        if not run_ids:
+            return {}
+        placeholders = ",".join("?" for _ in run_ids)
+        cur = self.conn.execute(
+            f"""
+            SELECT run_id, COUNT(*) AS c
+            FROM source_run_stats
+            WHERE run_id IN ({placeholders})
+              AND warning IS NOT NULL
+              AND TRIM(warning) != ''
+            GROUP BY run_id
+            """,
+            tuple(run_ids),
+        )
+        out: dict[str, int] = {}
+        for row in _rows_as_dicts(cur):
+            out[str(row["run_id"])] = int(row["c"] or 0)
+        return out
+
     def list_source_run_stats(self, run_id: str) -> list[dict[str, Any]]:
         cur = self.conn.execute(
             """
             SELECT run_id, source_id, http_status, fetched, in_window, new,
-                   passed_gate, selected, classified, error, duration_ms
+                   passed_gate, selected, classified, error, warning, duration_ms
             FROM source_run_stats
             WHERE run_id = ?
             ORDER BY source_id

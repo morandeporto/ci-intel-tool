@@ -345,6 +345,7 @@ sources:
   - id: reddit_devops
     competitor: null
     kind: community
+    required: false
     gate: "strict"
     type: atom
     url: https://www.reddit.com/r/devops/.rss
@@ -357,6 +358,7 @@ sources:
   - id: hn_supply_chain
     competitor: null
     kind: community
+    required: false
     gate: "strict"
     type: rss
     url: https://hnrss.org/newest?q=supply+chain
@@ -369,6 +371,7 @@ sources:
   - id: hn_sbom
     competitor: null
     kind: community
+    required: false
     gate: "strict"
     type: rss
     url: https://hnrss.org/newest?q=SBOM
@@ -380,6 +383,7 @@ sources:
   - id: hn_artifactory
     competitor: null
     kind: community
+    required: false
     gate: "strict"
     type: rss
     url: https://hnrss.org/newest?q=Artifactory
@@ -391,6 +395,7 @@ sources:
   - id: hn_jfrog
     competitor: null
     kind: community
+    required: false
     gate: "strict"
     type: rss
     url: https://hnrss.org/newest?q=JFrog
@@ -402,6 +407,7 @@ sources:
   - id: hn_mcp_registry
     competitor: null
     kind: community
+    required: false
     gate: "strict"
     type: rss
     url: https://hnrss.org/newest?q=%22MCP%20registry%22
@@ -413,6 +419,7 @@ sources:
   - id: hn_snyk
     competitor: null
     kind: community
+    required: false
     gate: "strict"
     type: rss
     url: https://hnrss.org/newest?q=Snyk

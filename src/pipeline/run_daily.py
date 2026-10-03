@@ -76,6 +76,7 @@ class PipelineResult:
     items_rescored_ok: int = 0
     items_rescored_fallback: int = 0
     source_errors: int = 0
+    source_warnings: int = 0
     dry_run: bool = False
     message: str = ""
     new_entries: list[NormalizedEntry] = field(default_factory=list)
@@ -212,6 +213,7 @@ def _build_source_run_stat_rows(
                 "selected": selected_c.get(sid, 0),
                 "classified": classified_by_source.get(sid, 0),
                 "error": stat.error,
+                "warning": getattr(stat, "warning", None),
                 "duration_ms": stat.duration_ms,
             }
         )
@@ -229,6 +231,7 @@ def _build_source_run_stat_rows(
                 "selected": selected_c.get(sid, 0),
                 "classified": classified_by_source.get(sid, 0),
                 "error": None,
+                "warning": None,
                 "duration_ms": None,
             }
         )
@@ -671,7 +674,9 @@ def run_daily(
         window_hours=int(model_cfg["window_hours"]),
     )
     items_fetched = len(fetch_result.entries)
+    # Only required-source failures affect status=partial.
     source_errors = len(fetch_result.errors)
+    source_warnings = len(getattr(fetch_result, "warnings", []) or [])
 
     if dry_run:
         return _run_dry(
@@ -679,6 +684,7 @@ def run_daily(
             fetch_errors=fetch_result.errors,
             items_fetched=items_fetched,
             source_errors=source_errors,
+            source_warnings=source_warnings,
             model_cfg=model_cfg,
             relevance_cfg=relevance_cfg,
             source_meta=source_meta,
@@ -899,6 +905,13 @@ def run_daily(
                 )
             elif source_errors and status != "success":
                 error_message = f"{source_errors} source fetch error(s)"
+            if source_warnings:
+                warn_note = f"{source_warnings} source warning(s) (non-required / soft failures)"
+                error_message = (
+                    f"{error_message} {warn_note}".strip()
+                    if error_message
+                    else warn_note
+                )
 
             rescored_ok = 0
             rescored_fallback = 0
@@ -951,6 +964,7 @@ def run_daily(
                 items_rescored_ok=rescored_ok,
                 items_rescored_fallback=rescored_fallback,
                 source_errors=source_errors,
+                source_warnings=source_warnings,
                 dry_run=False,
                 message=error_message or "Pipeline completed.",
                 new_entries=selected,
@@ -999,6 +1013,7 @@ def _run_dry(
     fetch_errors: list[Any],
     items_fetched: int,
     source_errors: int,
+    source_warnings: int = 0,
     model_cfg: dict[str, Any],
     relevance_cfg: dict[str, Any],
     source_meta: dict[str, dict[str, Any]],
@@ -1042,6 +1057,7 @@ def _run_dry(
             f"[dry-run] fetched={items_fetched} new={len(new_entries)} "
             f"filtered={len(filtered)} cap_skipped={len(cap_skipped)} "
             f"would_classify={len(selected)} source_errors={source_errors} "
+            f"source_warnings={source_warnings} "
             f"limit={effective_limit} window_hours={model_cfg['window_hours']}"
         )
         if fetch_errors:
@@ -1067,6 +1083,7 @@ def _run_dry(
             items_scored=0,
             items_filtered=len(filtered),
             source_errors=source_errors,
+            source_warnings=source_warnings,
             dry_run=True,
             message="Dry run complete (no LLM, no DB writes).",
             new_entries=selected,

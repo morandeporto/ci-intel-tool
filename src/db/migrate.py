@@ -141,6 +141,10 @@ def migrate_schema(conn: Any) -> list[str]:
         changes.append("llm_usage")
         logger.info("Migrated: created llm_usage table")
 
+    if _table_exists(conn, "source_run_stats"):
+        if _add_column_if_missing(conn, "source_run_stats", "warning", "TEXT"):
+            changes.append("source_run_stats.warning")
+
     try:
         conn.commit()
     except Exception:
