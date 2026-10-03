@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from src.pipeline.run_daily import _resolve_status
+from src.pipeline.run_daily import PipelineResult, _resolve_status, exit_code_for_live_run
 
 
 def test_degraded_when_fallback_ratio_over_30_percent() -> None:
@@ -55,3 +55,38 @@ def test_success_when_no_fallbacks() -> None:
         attempted=5,
     )
     assert status == "success"
+
+
+def test_live_exit_code_failed_is_one() -> None:
+    result = PipelineResult(status="failed", run_id=None, message="hard fail")
+    assert exit_code_for_live_run(result) == 1
+
+
+def test_live_exit_code_degraded_is_zero_without_gha_warning(
+    monkeypatch, capsys
+) -> None:
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
+    result = PipelineResult(
+        status="degraded",
+        run_id="r1",
+        message="daily quota: 3 item(s) left pending_scoring",
+    )
+    assert exit_code_for_live_run(result) == 0
+    assert "::warning::" not in capsys.readouterr().out
+
+
+def test_live_exit_code_degraded_emits_gha_warning(monkeypatch, capsys) -> None:
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    result = PipelineResult(
+        status="degraded",
+        run_id="r1",
+        message="high fallback ratio",
+    )
+    assert exit_code_for_live_run(result) == 0
+    out = capsys.readouterr().out
+    assert "::warning::Run degraded: high fallback ratio" in out
+
+
+def test_live_exit_code_success_and_partial_are_zero() -> None:
+    assert exit_code_for_live_run(PipelineResult(status="success", run_id=None)) == 0
+    assert exit_code_for_live_run(PipelineResult(status="partial", run_id=None)) == 0

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 import sys
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -1191,6 +1192,23 @@ def build_arg_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def exit_code_for_live_run(result: PipelineResult) -> int:
+    """Map a live ingest result to a process exit code.
+
+    Only ``failed`` fails the process / GHA job. ``degraded`` exits 0 so cron
+    stays green when soft quota or high-fallback healing left the digest usable;
+    on GitHub Actions emit an annotation so the warning is still visible.
+    """
+    if result.status == "failed":
+        return 1
+    if result.status == "degraded":
+        reason = (result.message or "pipeline degraded").strip()
+        if os.environ.get("GITHUB_ACTIONS", "").lower() == "true":
+            print(f"::warning::Run degraded: {reason}")
+        return 0
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_arg_parser().parse_args(argv)
     if args.rescore_fallbacks:
@@ -1238,9 +1256,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     if result.message:
         print(result.message)
-    if result.status in ("failed", "degraded"):
-        return 1
-    return 0
+    return exit_code_for_live_run(result)
 
 
 if __name__ == "__main__":
