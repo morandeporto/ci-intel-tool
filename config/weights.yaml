@@ -1,11 +1,20 @@
 # Relevance scoring weights. Must sum to 1.0.
-# Dimension scores (1-5) come from the LLM, the weighted total is computed in code.
+# Dimension scores (1-5) come from the LLM; the weighted total is computed in code.
 # Changing weights does not require re-querying the LLM.
+# Numeric weights unchanged — description text only (rubric 2026-10-v2).
 
 dimensions:
   jfrog_relevance:
     weight: 0.30
-    description: Direct relevance to JFrog's market, products, or customers.
+    description: >
+      Closeness to JFrog products, customers, and positioning. 5 = competitor GA/launch
+      in artifact management, software supply chain security, or AI/MCP governance; OR a
+      direct Artifactory/Xray alternative; OR a major npm/PyPI/Maven/Docker supply-chain
+      attack (5 = broad campaign / widely used package or registry; 4 = notable campaign;
+      3 = single malicious package). 4 = overlapping competitor feature. 3 = market
+      context. 1–2 = generic AI/DevOps, explainers, podcasts, listicles. JFrog's own blog
+      is not automatically a 5. Product-name mentions push up only when the product is
+      the subject.
   competitor_signal:
     weight: 0.25
     description: >
@@ -14,7 +23,11 @@ dimensions:
       UI label: "Market and competitive pressure".
   strategic_impact:
     weight: 0.25
-    description: Long-term strategic / platform impact vs tactical noise.
+    description: >
+      How broad and lasting the impact is (independent of jfrog_relevance). 5 = structural
+      shift (new product category, acquisition, major platform change, widespread
+      ecosystem attack). 4 = significant feature/campaign with lasting effect. 3 =
+      meaningful but limited or short-term. 1–2 = one-off, tactical, or noise.
   freshness:
     weight: 0.10
     description: Recency and urgency of the signal.

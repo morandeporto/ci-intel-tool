@@ -439,6 +439,7 @@ def rescore_fallback_items(
                     model_id=model_id,
                     scored_at=now,
                 )
+                rubric_version = str(model_cfg.get("rubric_version") or "").strip() or None
                 repo.apply_classification_to_item(
                     news_id,
                     summary=result.summary,
@@ -449,6 +450,7 @@ def rescore_fallback_items(
                     is_fallback=False,
                     scores=dims,
                     scored_by_model=model_id,
+                    rubric_version=rubric_version,
                 )
                 stats.ok += 1
             except Exception as exc:  # noqa: BLE001
@@ -497,6 +499,7 @@ def _persist_classified(
     model_id: str,
     run_id: str,
     is_fallback: bool = False,
+    rubric_version: str | None = None,
 ) -> None:
     # Fallback rows keep mid dimension scores for debugging but no ranking total.
     score = None if is_fallback else weighted_score(result.dimension_dict(), weights)
@@ -523,6 +526,7 @@ def _persist_classified(
         jfrog_implication=result.jfrog_implication,
         is_fallback=is_fallback,
         scored_by_model=scored_by,
+        rubric_version=None if is_fallback else rubric_version,
     )
     news_id = repo.upsert_news_item(item)
     if not is_fallback:
@@ -821,6 +825,10 @@ def run_daily(
                             model_id=active_model,
                             run_id=run_id,
                             is_fallback=used_fallback,
+                            rubric_version=str(
+                                model_cfg.get("rubric_version") or ""
+                            ).strip()
+                            or None,
                         )
                         items_scored += 1
                         retries_used_total += int(retries_used)

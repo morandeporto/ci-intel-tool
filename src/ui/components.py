@@ -190,11 +190,17 @@ def render_news_card(item: dict[str, Any]) -> str:
         is_fallback=is_fallback,
     )
     scored_by = (item.get("scored_by_model") or item.get("model_id") or "").strip()
+    rubric = (item.get("rubric_version") or "").strip()
     model_html = ""
-    if scored_by:
+    if scored_by or rubric:
+        bits = []
+        if scored_by:
+            bits.append(f"model: {_e(scored_by)}")
+        if rubric:
+            bits.append(f"rubric: {_e(rubric)}")
+        tip = " · ".join(bits)
         model_html = (
-            f'<span class="ci-model-tag" title="Classified by {_e(scored_by)}">'
-            f"model: {_e(scored_by)}</span>"
+            f'<span class="ci-model-tag" title="{tip}">{tip}</span>'
         )
     # Single-line outer structure so Streamlit does not fragment the card.
     return (

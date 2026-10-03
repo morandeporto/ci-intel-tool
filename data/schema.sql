@@ -40,6 +40,8 @@ CREATE TABLE IF NOT EXISTS news_items (
     is_fallback INTEGER NOT NULL DEFAULT 0,
     -- Exact Gemini model id that produced the classification (null if unscored)
     scored_by_model TEXT,
+    -- Scoring rubric version from config/model.yaml (null for pre-versioning rows)
+    rubric_version TEXT,
     FOREIGN KEY (run_id) REFERENCES pipeline_runs(id)
 );
 

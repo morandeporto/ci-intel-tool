@@ -79,6 +79,8 @@ def migrate_schema(conn: Any) -> list[str]:
         changes.append("news_items.is_fallback")
     if _add_column_if_missing(conn, "news_items", "scored_by_model", "TEXT"):
         changes.append("news_items.scored_by_model")
+    if _add_column_if_missing(conn, "news_items", "rubric_version", "TEXT"):
+        changes.append("news_items.rubric_version")
 
     if _table_exists(conn, "pipeline_runs"):
         if _add_column_if_missing(

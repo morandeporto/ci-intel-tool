@@ -4,6 +4,9 @@
 # Model ids below were copied from a read-only list-models call (2026-10-03) - no aliases.
 
 provider: gemini
+# Rubric / scoring-calibration version stored on each newly classified item.
+# Bump when prompt anchors change; existing rows keep their prior value (no auto rescore).
+rubric_version: "2026-10-v2"
 # Primary pipeline classifier (also aliased as model_id for backward compatibility).
 pipeline_model: gemini-3.8-flash
 model_id: gemini-3.8-flash

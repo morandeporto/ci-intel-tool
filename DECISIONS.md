@@ -5,6 +5,38 @@ Maintained as decisions are made (see `.cursorrules`).
 
 ---
 
+## [2026-10-03] Scoring rubric v2 + rubric_version column
+
+**Selected Option:** Tighten LLM scoring anchors in `SCORING_CALIBRATION_CURRENT`
+(separate `strategic_impact` from `jfrog_relevance`, define supply-chain attack
+scale 3/4/5, JFrog blog not auto-5, product-name mentions only when the product
+is the subject). Keep numeric weights unchanged; store `rubric_version`
+(`config/model.yaml`, e.g. `2026-10-v2`) on each newly classified item via
+idempotent SQLite/Turso migration. Do not auto-rescore existing rows. Keep
+`SCORING_CALIBRATION_LEGACY` for A/B via `legacy_rubric=` / `compare_models.py`.
+
+**Alternatives Considered:**
+- Re-score all history on rubric bump (rejected: burns quota; history stays
+  comparable only within its stored `rubric_version`)
+- Encode anchors only in `weights.yaml` descriptions (rejected: the model never
+  sees those; prompts need the anchors)
+- Drop legacy prompt text (rejected: need a controlled A/B before trusting v2)
+
+**Rationale:** Calibration + auditability - clearer anchors cut false highs;
+versioning lets us explain why two days' scores differ without rewriting the past.
+
+**How to Explain in an Interview (20-30 Seconds Verbal):**
+> "We tightened the scoring rubric so strategic impact is about breadth and
+> lasting effect, not a copy of JFrog relevance, and we stamp each item with a
+> rubric_version so we can change anchors later without silently rewriting
+> history - A/B is a throwaway script against stored titles, not a DB rewrite."
+
+**JFrog Product Connection (If applicable):**
+Similar to Xray policy versions: scan results stay tied to the rule set that
+produced them so auditors can explain score changes over time.
+
+---
+
 ## [2026-10-03] Self-healing scoring: pending state, automatic rescore, nightly retry
 
 **Selected Option:** On daily PerDay quota exhaustion, persist remaining items as

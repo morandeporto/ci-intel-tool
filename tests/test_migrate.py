@@ -66,6 +66,8 @@ def test_migrate_adds_columns_and_source_run_stats(tmp_path: Path) -> None:
         assert "is_fallback" in cols
         assert "scored_by_model" in cols
         assert "news_items.scored_by_model" in changes
+        assert "rubric_version" in cols
+        assert "news_items.rubric_version" in changes
         assert _table_exists(conn, "source_run_stats")
         assert _table_exists(conn, "llm_usage")
         # Existing row preserved.
@@ -86,6 +88,7 @@ def test_init_db_applies_migration(tmp_path: Path) -> None:
         cols = _table_columns(conn, "news_items")
         assert "status" in cols
         assert "scored_by_model" in cols
+        assert "rubric_version" in cols
         assert _table_exists(conn, "source_run_stats")
         assert _table_exists(conn, "llm_usage")
     finally:

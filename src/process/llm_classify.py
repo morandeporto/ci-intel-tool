@@ -56,6 +56,80 @@ ItemType = Literal["competitor", "emerging", "industry"]
 
 FALLBACK_IMPLICATION = "Not analyzed (model unavailable)"
 
+# Legacy rubric (pre-2026-10-v2) kept for A/B compare_models.py — do not use in production.
+SCORING_CALIBRATION_LEGACY = """SCORING CALIBRATION (critical):
+Most items should score 2-3. Reserve 5 for rare, clearly major events. Do not inflate scores.
+
+Score each dimension as an integer from 1 to 5:
+
+jfrog_relevance — how directly this matters to JFrog products, customers, or positioning
+(industry-wide supply-chain or SBOM events can be 4–5 when impact is clear):
+  1 = unrelated noise; 3 = indirectly useful context; 5 = direct product/customer impact
+
+competitor_signal — intensity of competitive OR market pressure relevant to JFrog
+(vendor product moves, emerging-tool adoption, ecosystem shifts, or regulation that
+changes buyer expectations). Do NOT require a named tracked competitor. A major npm
+supply-chain attack or new SBOM mandate can score 4–5 even when competitor metadata
+is "industry". Score 1 only for noise with no competitive/market pressure:
+  1 = no market/competitive pressure; 3 = notable but routine signal; 5 = major shift
+
+strategic_impact — lasting platform/strategy impact vs short-term noise
+(industry/emerging items are NOT capped below competitor launches when impact is real):
+  1 = tactical/ephemeral; 3 = meaningful medium-term; 5 = lasting platform/strategy shift
+
+freshness — recency and urgency (use published_at vs today_utc below; do not invent dates):
+  1 = stale or undated with no urgency; 3 = timely routine update; 5 = breaking / highly urgent
+
+market_visibility — how visible/notable this is in the broader market narrative:
+  1 = obscure niche note; 3 = visible in specialist channels; 5 = widely discussed / headline"""
+
+# Current production rubric (config rubric_version, e.g. 2026-10-v2).
+SCORING_CALIBRATION_CURRENT = """SCORING CALIBRATION (critical):
+Most items should score 2-3. Do not inflate scores.
+
+Score each dimension as an integer from 1 to 5:
+
+jfrog_relevance — closeness to JFrog's products, customers, and positioning:
+  5 = a direct competitor product launch or GA in JFrog's core areas (artifact management,
+      software supply chain security, AI/MCP governance), OR a direct alternative to a
+      JFrog product (e.g. an open-source or commercial Artifactory alternative), OR a
+      major supply-chain attack on npm/PyPI/Maven/Docker ecosystems
+  4 = a competitor feature that overlaps a JFrog product
+  3 = relevant market context
+  1–2 = generic AI/DevOps news, event previews, explainers, benchmarks, podcasts, listicles
+  "Major supply-chain attack" scale (when that is the news): 5 = broad campaign or a
+  widely used package/registry affected; 4 = notable campaign; 3 = single malicious
+  package or small incident.
+  An article from JFrog's own blog is NOT automatically a 5 — judge by news value for
+  the competitive-intelligence team.
+  Mentions of JFrog product names (Artifactory, Xray, Curation, AppTrust) push
+  jfrog_relevance up ONLY when that product is the subject of the article.
+
+competitor_signal — intensity of competitive OR market pressure relevant to JFrog
+(vendor product moves, emerging-tool adoption, ecosystem shifts, or regulation that
+changes buyer expectations). Do NOT require a named tracked competitor. A major npm
+supply-chain attack or new SBOM mandate can score 4–5 even when competitor metadata
+is "industry". Score 1 only for noise with no competitive/market pressure:
+  1 = no market/competitive pressure; 3 = notable but routine signal; 5 = major shift
+
+strategic_impact — how broad and lasting the impact is (independent of jfrog_relevance):
+  5 = structural shift (new product category, acquisition, major platform change,
+      widespread ecosystem attack)
+  4 = significant feature or campaign with lasting effect
+  3 = meaningful but limited or short-term
+  1–2 = one-off, tactical, or noise
+
+freshness — recency and urgency (use published_at vs today_utc below; do not invent dates):
+  1 = stale or undated with no urgency; 3 = timely routine update; 5 = breaking / highly urgent
+
+market_visibility — how visible/notable this is in the broader market narrative:
+  1 = obscure niche note; 3 = visible in specialist channels; 5 = widely discussed / headline"""
+
+
+def scoring_calibration_text(*, legacy: bool = False) -> str:
+    """Return the scoring rubric block (legacy for A/B; current for production)."""
+    return SCORING_CALIBRATION_LEGACY if legacy else SCORING_CALIBRATION_CURRENT
+
 
 class ClassifyError(Exception):
     """Raised when classification cannot produce a validated result."""
@@ -221,6 +295,7 @@ def build_classification_prompt(
     *,
     max_excerpt_chars: int,
     today_utc: str | None = None,
+    legacy_rubric: bool = False,
 ) -> str:
     """Build a prompt that isolates untrusted web content from instructions.
 
@@ -232,36 +307,13 @@ def build_classification_prompt(
     categories = ", ".join(ALLOWED_CATEGORIES)
     today = today_utc or datetime.now(timezone.utc).date().isoformat()
     published = entry.published_at or "unknown"
+    calibration = scoring_calibration_text(legacy=legacy_rubric)
     return f"""You are a competitive-intelligence analyst for JFrog (software supply chain,
 artifact management, DevOps security). Classify ONE news item.
 
 Return ONLY JSON matching the schema.
 
-SCORING CALIBRATION (critical):
-Most items should score 2-3. Reserve 5 for rare, clearly major events. Do not inflate scores.
-
-Score each dimension as an integer from 1 to 5:
-
-jfrog_relevance - how directly this matters to JFrog products, customers, or positioning
-(industry-wide supply-chain or SBOM events can be 4-5 when impact is clear):
-  1 = unrelated noise, 3 = indirectly useful context, 5 = direct product/customer impact
-
-competitor_signal - intensity of competitive OR market pressure relevant to JFrog
-(vendor product moves, emerging-tool adoption, ecosystem shifts, or regulation that
-changes buyer expectations). Do NOT require a named tracked competitor. A major npm
-supply-chain attack or new SBOM mandate can score 4-5 even when competitor metadata
-is "industry". Score 1 only for noise with no competitive/market pressure:
-  1 = no market/competitive pressure, 3 = notable but routine signal, 5 = major shift
-
-strategic_impact - lasting platform/strategy impact vs short-term noise
-(industry/emerging items are NOT capped below competitor launches when impact is real):
-  1 = tactical/ephemeral, 3 = meaningful medium-term, 5 = lasting platform/strategy shift
-
-freshness - recency and urgency (use published_at vs today_utc below, do not invent dates):
-  1 = stale or undated with no urgency, 3 = timely routine update, 5 = breaking / highly urgent
-
-market_visibility - how visible/notable this is in the broader market narrative:
-  1 = obscure niche note, 3 = visible in specialist channels, 5 = widely discussed / headline
+{calibration}
 
 Also return:
 - item_type: one of "competitor" | "emerging" | "industry"
@@ -306,6 +358,7 @@ def build_batch_classification_prompt(
     max_excerpt_chars: int,
     today_utc: str | None = None,
     item_ids: list[str] | None = None,
+    legacy_rubric: bool = False,
 ) -> str:
     """Build a multi-item prompt, each article stays in its own delimited block."""
     if not entries:
@@ -315,6 +368,7 @@ def build_batch_classification_prompt(
     ids = item_ids if item_ids is not None else [batch_item_id(e) for e in entries]
     categories = ", ".join(ALLOWED_CATEGORIES)
     today = today_utc or datetime.now(timezone.utc).date().isoformat()
+    calibration = scoring_calibration_text(legacy=legacy_rubric)
     blocks: list[str] = []
     for item_id, entry in zip(ids, entries, strict=True):
         excerpt = (entry.raw_excerpt or "")[:max_excerpt_chars]
@@ -349,31 +403,7 @@ Rules for ids:
 - Requested ids (must match exactly): {id_list}
 - Do not invent ids. Do not omit ids. Do not duplicate ids.
 
-SCORING CALIBRATION (critical):
-Most items should score 2-3. Reserve 5 for rare, clearly major events. Do not inflate scores.
-
-Score each dimension as an integer from 1 to 5:
-
-jfrog_relevance - how directly this matters to JFrog products, customers, or positioning
-(industry-wide supply-chain or SBOM events can be 4-5 when impact is clear):
-  1 = unrelated noise, 3 = indirectly useful context, 5 = direct product/customer impact
-
-competitor_signal - intensity of competitive OR market pressure relevant to JFrog
-(vendor product moves, emerging-tool adoption, ecosystem shifts, or regulation that
-changes buyer expectations). Do NOT require a named tracked competitor. A major npm
-supply-chain attack or new SBOM mandate can score 4-5 even when competitor metadata
-is "industry". Score 1 only for noise with no competitive/market pressure:
-  1 = no market/competitive pressure, 3 = notable but routine signal, 5 = major shift
-
-strategic_impact - lasting platform/strategy impact vs short-term noise
-(industry/emerging items are NOT capped below competitor launches when impact is real):
-  1 = tactical/ephemeral, 3 = meaningful medium-term, 5 = lasting platform/strategy shift
-
-freshness - recency and urgency (use published_at vs today_utc below, do not invent dates):
-  1 = stale or undated with no urgency, 3 = timely routine update, 5 = breaking / highly urgent
-
-market_visibility - how visible/notable this is in the broader market narrative:
-  1 = obscure niche note, 3 = visible in specialist channels, 5 = widely discussed / headline
+{calibration}
 
 Also return per item:
 - item_type: one of "competitor" | "emerging" | "industry"
@@ -581,6 +611,7 @@ def classify_entry(
     api_key: str | None = None,
     usage_guard: LlmUsageGuard | None = None,
     model_id_override: str | None = None,
+    legacy_rubric: bool = False,
 ) -> tuple[ClassificationResult, int]:
     """Call Gemini with structured JSON output for one news item.
 
@@ -604,7 +635,10 @@ def classify_entry(
     key = api_key if api_key is not None else _require_api_key()
     today_utc = datetime.now(timezone.utc).date().isoformat()
     prompt = build_classification_prompt(
-        entry, max_excerpt_chars=max_excerpt, today_utc=today_utc
+        entry,
+        max_excerpt_chars=max_excerpt,
+        today_utc=today_utc,
+        legacy_rubric=legacy_rubric,
     )
 
     def _once() -> str:
@@ -719,6 +753,7 @@ def classify_entries_batch(
     item_ids: list[str] | None = None,
     usage_guard: LlmUsageGuard | None = None,
     model_id_override: str | None = None,
+    legacy_rubric: bool = False,
 ) -> tuple[dict[str, ClassificationResult], list[str], int]:
     """Classify up to batch_size items in one Gemini call.
 
@@ -751,6 +786,7 @@ def classify_entries_batch(
         max_excerpt_chars=max_excerpt,
         today_utc=today_utc,
         item_ids=ids,
+        legacy_rubric=legacy_rubric,
     )
 
     def _once() -> str:

@@ -72,3 +72,4 @@ class NewsItem:
     jfrog_implication: str | None = None
     is_fallback: bool = False
     scored_by_model: str | None = None
+    rubric_version: str | None = None

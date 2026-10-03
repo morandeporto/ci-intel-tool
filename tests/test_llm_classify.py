@@ -95,6 +95,13 @@ def test_prompt_isolates_untrusted_content() -> None:
     assert "published_at:" in prompt
     assert "Do not inflate scores" in prompt
     assert "jfrog_implication" in prompt
+    assert "NOT automatically a 5" in prompt
+    assert "how broad and lasting the impact is" in prompt
+    legacy = build_classification_prompt(
+        entry, max_excerpt_chars=500, today_utc="2026-10-03", legacy_rubric=True
+    )
+    assert "Reserve 5 for rare, clearly major events" in legacy
+    assert "NOT automatically a 5" not in legacy
     # Inject a fake instruction inside the excerpt to ensure it stays delimited.
     poisoned = NormalizedEntry(
         title=entry.title,
