@@ -39,6 +39,9 @@ def test_emerging_and_secondary_competitors_enabled() -> None:
 def test_relevance_config_lists() -> None:
     cfg = load_relevance_config()
     assert "SBOM" in cfg["strong_keywords"]
+    assert "CRA" in cfg["strong_keywords"]
+    assert "supply-chain" in cfg["strong_keywords"]
+    assert "MCP" in cfg["strong_keywords"]
     assert "Docker" in cfg["weak_keywords"]
     assert "Scheduled Maintenance" in cfg["exclude_title_patterns"]
 
@@ -65,6 +68,7 @@ def test_enabled_sources_allow_null_competitor() -> None:
     by_id = {s["id"]: s for s in load_sources()}
     assert by_id["jfrog_status"]["enabled"] is False
     assert by_id["jfrog_medium"]["enabled"] is False
+    assert by_id["reddit_devops"]["enabled"] is False
     assert by_id["hn_snyk"]["enabled"] is False
     assert by_id["chainguard_blog"]["enabled"] is True
     assert by_id["hn_mcp_registry"]["enabled"] is True

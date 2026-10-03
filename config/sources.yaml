@@ -348,10 +348,11 @@ sources:
     gate: "strict"
     type: atom
     url: https://www.reddit.com/r/devops/.rss
-    enabled: true
+    enabled: false
     category: community
     last_verified: "2026-10-02"
-    note: "Lower trust aggregator. May 429; review after backfill for noise."
+    # Disabled 2026-10-03: 25/25 items filtered (noise); not worth the fetch budget.
+    note: "Disabled 2026-10-03: 25/25 filtered as noise under strict gate."
 
   - id: hn_supply_chain
     competitor: null

@@ -5,8 +5,11 @@
 
 strong_keywords:
   - supply chain
+  - supply-chain
   - SBOM
   - CVE
+  - CRA
+  - Cyber Resilience Act
   - malicious package
   - artifact repository
   - package registry
@@ -17,15 +20,25 @@ strong_keywords:
   - Snyk
   - JFrog
   - Cloudsmith
+  - CloudBees
   - npm
   - PyPI
   - Maven
+  - Node.js
+  - open source security
+  - OSS security
+  - dependency
+  - dependencies
+  - package manager
   - typosquatting
   - dependency confusion
   - provenance
   - Sigstore
   - SLSA
+  - MCP
   - MCP registry
+  - token theft
+  - leaked credentials
 
 weak_keywords:
   - container
