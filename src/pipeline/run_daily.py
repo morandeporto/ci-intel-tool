@@ -39,13 +39,14 @@ from src.process.llm_classify import (
 )
 from src.process.llm_rate_limit import configure_llm_interval
 from src.process.relevance_gate import evaluate_gate
+from src.process.rescore import select_fallbacks_for_rescore
 from src.process.scoring import weighted_score
 from src.process.selection import select_for_llm
 
 logger = logging.getLogger(__name__)
 
 RunTrigger = Literal["manual", "cron"]
-RunStatus = Literal["success", "partial", "failed"]
+RunStatus = Literal["success", "partial", "failed", "degraded"]
 
 
 def _utc_now() -> str:
@@ -66,6 +67,8 @@ class PipelineResult:
     items_fallback: int = 0
     items_classified_ok: int = 0
     retries_used: int = 0
+    items_rescored_ok: int = 0
+    items_rescored_fallback: int = 0
     source_errors: int = 0
     dry_run: bool = False
     message: str = ""
@@ -253,6 +256,114 @@ def _persist_filtered(
     repo.upsert_news_item(item)
 
 
+def _row_to_normalized_entry(row: dict[str, Any]) -> NormalizedEntry:
+    return NormalizedEntry(
+        title=str(row.get("title") or ""),
+        url=str(row.get("url") or ""),
+        published_at=row.get("published_at"),
+        raw_excerpt=str(row.get("raw_excerpt") or ""),
+        source_id=str(row.get("source_id") or ""),
+        competitor=str(row.get("competitor") or "industry"),
+        content_hash=str(row.get("content_hash") or ""),
+    )
+
+
+@dataclass
+class RescoreStats:
+    attempted: int = 0
+    ok: int = 0
+    still_fallback: int = 0
+    retries_used: int = 0
+    errors: list[str] = field(default_factory=list)
+
+
+def rescore_fallback_items(
+    repo: Repository,
+    *,
+    model_cfg: dict[str, Any],
+    weights: dict[str, float],
+    source_meta: dict[str, dict[str, Any]],
+    within_days: int | None = None,
+    limit: int | None = None,
+) -> RescoreStats:
+    """Re-classify stored is_fallback rows (newest first, capped)."""
+    days = int(
+        within_days
+        if within_days is not None
+        else model_cfg.get("rescore_fallback_days", 3)
+    )
+    cap = int(
+        limit if limit is not None else model_cfg.get("rescore_fallback_limit", 40)
+    )
+    candidates = select_fallbacks_for_rescore(
+        repo.list_fallback_items(),
+        within_days=days,
+        limit=cap,
+    )
+    stats = RescoreStats(attempted=len(candidates))
+    if not candidates:
+        return stats
+
+    configure_llm_interval(float(model_cfg.get("llm_min_interval_seconds", 0.5)))
+    llm_workers = max(1, int(model_cfg.get("llm_concurrency", 3)))
+    model_id = str(model_cfg["model_id"])
+
+    def _one(row: dict[str, Any]) -> tuple[dict[str, Any], ClassificationResult, bool, str | None, int]:
+        entry = _row_to_normalized_entry(row)
+        kind = str((source_meta.get(entry.source_id) or {}).get("kind") or "")
+        result, used_fallback, err, retries = classify_entry_with_fallback(
+            entry, model_config=model_cfg, source_kind=kind
+        )
+        return row, result, used_fallback, err, retries
+
+    outcomes: list[
+        tuple[dict[str, Any], ClassificationResult, bool, str | None, int]
+    ] = []
+    with ThreadPoolExecutor(max_workers=min(llm_workers, len(candidates))) as pool:
+        futures = [pool.submit(_one, row) for row in candidates]
+        for fut in as_completed(futures):
+            try:
+                outcomes.append(fut.result())
+            except Exception as exc:  # noqa: BLE001
+                stats.errors.append(f"rescore worker failed: {exc}")
+
+    now = _utc_now()
+    for row, result, used_fallback, err, retries in outcomes:
+        stats.retries_used += int(retries)
+        news_id = str(row["id"])
+        try:
+            if used_fallback:
+                stats.still_fallback += 1
+                if err:
+                    stats.errors.append(f"{row.get('url')}: {err}")
+                # Leave is_fallback=1; do not overwrite with another placeholder.
+                continue
+            score = weighted_score(result.dimension_dict(), weights)
+            dims = DimensionScores(
+                jfrog_relevance=result.jfrog_relevance,
+                competitor_signal=result.competitor_signal,
+                strategic_impact=result.strategic_impact,
+                freshness=result.freshness,
+                market_visibility=result.market_visibility,
+                model_id=model_id,
+                scored_at=now,
+            )
+            repo.apply_classification_to_item(
+                news_id,
+                summary=result.summary,
+                category=result.category,
+                item_type=result.item_type,
+                jfrog_implication=result.jfrog_implication,
+                relevance_score=score,
+                is_fallback=False,
+                scores=dims,
+            )
+            stats.ok += 1
+        except Exception as exc:  # noqa: BLE001
+            stats.errors.append(f"{row.get('url')}: rescore persist failed: {exc}")
+    return stats
+
+
 def _persist_classified(
     repo: Repository,
     entry: NormalizedEntry,
@@ -300,6 +411,74 @@ def _persist_classified(
         repo.save_dimension_scores(news_id, dims)
 
 
+def run_rescore_only(
+    *,
+    db_path: Path | str | None = None,
+    within_days: int | None = None,
+    limit: int | None = None,
+) -> PipelineResult:
+    """CLI path: rescore stored fallbacks without fetching feeds."""
+    model_cfg = load_model_config()
+    weights = load_weights()
+    source_meta = _source_meta_by_id()
+    use_turso = turso_configured() and db_path is None
+    path = None if use_turso else (Path(db_path) if db_path else DEFAULT_DB_PATH)
+    if use_turso:
+        init_db()
+    else:
+        assert path is not None
+        init_db(path)
+
+    def _connect():
+        return get_connection() if use_turso else get_connection(path)
+
+    conn = _connect()
+    try:
+        repo = Repository(conn)
+        run_id = repo.start_run("manual")
+        stats = rescore_fallback_items(
+            repo,
+            model_cfg=model_cfg,
+            weights=weights,
+            source_meta=source_meta,
+            within_days=within_days,
+            limit=limit,
+        )
+        status: RunStatus = "success"
+        if stats.attempted > 0 and stats.ok == 0 and stats.still_fallback > 0:
+            status = "failed"
+        elif stats.still_fallback > 0 or stats.errors:
+            status = "partial"
+        msg = (
+            f"Rescored fallbacks: attempted={stats.attempted} ok={stats.ok} "
+            f"still_fallback={stats.still_fallback} retries={stats.retries_used}"
+        )
+        repo.finish_run(
+            run_id,
+            status=status,
+            items_fetched=0,
+            items_new=0,
+            items_scored=stats.ok,
+            error_message=msg if status != "success" else None,
+        )
+        return PipelineResult(
+            status=status,
+            run_id=run_id,
+            items_scored=stats.ok,
+            items_classified_ok=stats.ok,
+            items_fallback=stats.still_fallback,
+            retries_used=stats.retries_used,
+            items_rescored_ok=stats.ok,
+            items_rescored_fallback=stats.still_fallback,
+            message=msg,
+        )
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+
 def run_daily(
     *,
     trigger: RunTrigger = "manual",
@@ -307,12 +486,15 @@ def run_daily(
     limit: int | None = None,
     dry_run: bool = False,
     window_hours: int | None = None,
+    skip_auto_rescore: bool = False,
 ) -> PipelineResult:
     """Execute one daily ingestion + classification cycle.
 
     dry_run: fetch + dedupe + freshness + gate + select + print — no LLM, no writes.
     window_hours: override model.yaml window (used by --backfill-days).
     limit: when set, raises/sets the selection cap for this run (not clamped down).
+    After a live run, automatically rescores recent fallbacks (last N days) unless
+    ``skip_auto_rescore`` is set.
     """
     model_cfg = load_model_config()
     if window_hours is not None:
@@ -518,6 +700,26 @@ def run_daily(
             elif source_errors and status != "success":
                 error_message = f"{source_errors} source fetch error(s)"
 
+            rescored_ok = 0
+            rescored_fallback = 0
+            if not skip_auto_rescore:
+                # Heal recent fallbacks from temporary model outages (incl. this run).
+                rescore_stats = rescore_fallback_items(
+                    repo,
+                    model_cfg=model_cfg,
+                    weights=weights,
+                    source_meta=source_meta,
+                )
+                rescored_ok = rescore_stats.ok
+                rescored_fallback = rescore_stats.still_fallback
+                retries_used_total += rescore_stats.retries_used
+                if rescore_stats.attempted:
+                    heal_note = (
+                        f" Auto-rescore: attempted={rescore_stats.attempted} "
+                        f"ok={rescore_stats.ok} still_fallback={rescore_stats.still_fallback}."
+                    )
+                    error_message = (error_message or "Pipeline completed.") + heal_note
+
             repo.finish_run(
                 run_id,
                 status=status,
@@ -538,6 +740,8 @@ def run_daily(
                 items_fallback=items_fallback,
                 items_classified_ok=items_classified_ok,
                 retries_used=retries_used_total,
+                items_rescored_ok=rescored_ok,
+                items_rescored_fallback=rescored_fallback,
                 source_errors=source_errors,
                 dry_run=False,
                 message=error_message or "Pipeline completed.",
@@ -738,11 +942,28 @@ def build_arg_parser() -> argparse.ArgumentParser:
         default=None,
         help="Widen the freshness window to N days for a real backfill ingest.",
     )
+    parser.add_argument(
+        "--rescore-fallbacks",
+        action="store_true",
+        help="Re-classify stored is_fallback items (newest first) instead of ingesting.",
+    )
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     args = build_arg_parser().parse_args(argv)
+    if args.rescore_fallbacks:
+        result = run_rescore_only(db_path=args.db, limit=args.limit)
+        print(
+            f"status={result.status} rescored_ok={result.items_rescored_ok} "
+            f"still_fallback={result.items_rescored_fallback} "
+            f"retries={result.retries_used}"
+            + (f" run_id={result.run_id}" if result.run_id else "")
+        )
+        if result.message:
+            print(result.message)
+        return 1 if result.status == "failed" else 0
+
     window_hours = None
     if args.backfill_days is not None:
         if args.backfill_days < 1:
@@ -759,6 +980,9 @@ def main(argv: list[str] | None = None) -> int:
     print(
         f"status={result.status} fetched={result.items_fetched} "
         f"new={result.items_new} scored={result.items_scored} "
+        f"ok={result.items_classified_ok} fallback={result.items_fallback} "
+        f"retries={result.retries_used} "
+        f"rescored_ok={result.items_rescored_ok} "
         f"filtered={result.items_filtered} "
         f"failed={result.items_failed} source_errors={result.source_errors}"
         + (f" run_id={result.run_id}" if result.run_id else "")

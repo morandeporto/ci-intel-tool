@@ -24,6 +24,9 @@ llm_retry_max_seconds: 20.0
 llm_concurrency: 3
 # Minimum spacing between Gemini calls across workers (seconds).
 llm_min_interval_seconds: 0.5
+# Auto-heal fallbacks from the last N days at end of each run / --rescore-fallbacks.
+rescore_fallback_days: 3
+rescore_fallback_limit: 40
 
 # Reserved minimum slots by source kind when selecting items for the LLM.
 # Unused slots flow to other kinds. industry + community share one combined pool.

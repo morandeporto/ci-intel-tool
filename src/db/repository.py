@@ -344,6 +344,57 @@ class Repository:
         )
         self.conn.commit()
 
+    def list_fallback_items(self) -> list[dict[str, Any]]:
+        """All fallback news rows (selection/window applied in process.rescore)."""
+        cur = self.conn.execute(
+            """
+            SELECT id, title, url, source_id, competitor, published_at, ingested_at,
+                   summary, category, raw_excerpt, content_hash, relevance_score,
+                   run_id, status, filter_reason, item_type, jfrog_implication,
+                   is_fallback
+            FROM news_items
+            WHERE COALESCE(is_fallback, 0) = 1
+              AND COALESCE(status, 'classified') != 'filtered'
+            ORDER BY ingested_at DESC
+            """
+        )
+        return _rows_as_dicts(cur)
+
+    def apply_classification_to_item(
+        self,
+        news_item_id: str,
+        *,
+        summary: str,
+        category: str,
+        item_type: str | None,
+        jfrog_implication: str | None,
+        relevance_score: float | None,
+        is_fallback: bool,
+        scores: DimensionScores | None,
+    ) -> None:
+        """Update a stored news row after (re)classification."""
+        self.conn.execute(
+            """
+            UPDATE news_items SET
+                summary = ?, category = ?, item_type = ?, jfrog_implication = ?,
+                relevance_score = ?, is_fallback = ?, status = 'classified',
+                filter_reason = NULL
+            WHERE id = ?
+            """,
+            (
+                summary,
+                category,
+                item_type,
+                jfrog_implication,
+                relevance_score,
+                1 if is_fallback else 0,
+                news_item_id,
+            ),
+        )
+        if scores is not None and not is_fallback:
+            self.save_dimension_scores(news_item_id, scores)
+        self.conn.commit()
+
     def news_count(self) -> int:
         row = self.conn.execute("SELECT COUNT(*) AS c FROM news_items").fetchone()
         val = _scalar(row, "c", 0)
