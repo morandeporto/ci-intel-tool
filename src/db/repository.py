@@ -96,13 +96,17 @@ class Repository:
         items_fetched: int = 0,
         items_new: int = 0,
         items_scored: int = 0,
+        items_classified_ok: int = 0,
+        items_fallback: int = 0,
+        retries_used: int = 0,
         error_message: str | None = None,
     ) -> None:
         self.conn.execute(
             """
             UPDATE pipeline_runs
             SET finished_at = ?, status = ?, items_fetched = ?, items_new = ?,
-                items_scored = ?, error_message = ?
+                items_scored = ?, items_classified_ok = ?, items_fallback = ?,
+                retries_used = ?, error_message = ?
             WHERE id = ?
             """,
             (
@@ -111,6 +115,9 @@ class Repository:
                 items_fetched,
                 items_new,
                 items_scored,
+                items_classified_ok,
+                items_fallback,
+                retries_used,
                 error_message,
                 run_id,
             ),
@@ -121,7 +128,8 @@ class Repository:
         cur = self.conn.execute(
             """
             SELECT id, started_at, finished_at, status, trigger,
-                   items_fetched, items_new, items_scored, error_message
+                   items_fetched, items_new, items_scored,
+                   items_classified_ok, items_fallback, retries_used, error_message
             FROM pipeline_runs
             ORDER BY started_at DESC
             LIMIT ?
@@ -134,7 +142,8 @@ class Repository:
         cur = self.conn.execute(
             """
             SELECT id, started_at, finished_at, status, trigger,
-                   items_fetched, items_new, items_scored, error_message
+                   items_fetched, items_new, items_scored,
+                   items_classified_ok, items_fallback, retries_used, error_message
             FROM pipeline_runs
             ORDER BY started_at DESC
             LIMIT 1

@@ -444,11 +444,15 @@ def run_rescore_only(
             within_days=within_days,
             limit=limit,
         )
-        status: RunStatus = "success"
-        if stats.attempted > 0 and stats.ok == 0 and stats.still_fallback > 0:
-            status = "failed"
-        elif stats.still_fallback > 0 or stats.errors:
-            status = "partial"
+        status = _resolve_status(
+            items_fetched=0,
+            items_new=0,
+            items_scored=stats.ok,
+            items_failed=len(stats.errors),
+            items_fallback=stats.still_fallback,
+            source_errors=0,
+            attempted=stats.attempted,
+        )
         msg = (
             f"Rescored fallbacks: attempted={stats.attempted} ok={stats.ok} "
             f"still_fallback={stats.still_fallback} retries={stats.retries_used}"
@@ -459,6 +463,9 @@ def run_rescore_only(
             items_fetched=0,
             items_new=0,
             items_scored=stats.ok,
+            items_classified_ok=stats.ok,
+            items_fallback=stats.still_fallback,
+            retries_used=stats.retries_used,
             error_message=msg if status != "success" else None,
         )
         return PipelineResult(
@@ -726,6 +733,9 @@ def run_daily(
                 items_fetched=items_fetched,
                 items_new=len(new_entries),
                 items_scored=items_scored,
+                items_classified_ok=items_classified_ok,
+                items_fallback=items_fallback,
+                retries_used=retries_used_total,
                 error_message=error_message,
             )
 
@@ -892,6 +902,7 @@ def _resolve_status(
     items_fallback: int = 0,
     source_errors: int,
     attempted: int,
+    fallback_degraded_ratio: float = 0.30,
 ) -> RunStatus:
     if attempted == 0:
         if items_fetched == 0 and source_errors > 0:
@@ -904,6 +915,9 @@ def _resolve_status(
     # Every model call failed → hard failure (no silent success for cron/GHA).
     if attempted > 0 and items_fallback >= attempted and items_fallback > 0:
         return "failed"
+    fallback_ratio = items_fallback / attempted if attempted else 0.0
+    if fallback_ratio > fallback_degraded_ratio:
+        return "degraded"
     if items_failed > 0 or source_errors > 0 or items_fallback > 0:
         return "partial"
     return "success"
@@ -962,7 +976,7 @@ def main(argv: list[str] | None = None) -> int:
         )
         if result.message:
             print(result.message)
-        return 1 if result.status == "failed" else 0
+        return 1 if result.status in ("failed", "degraded") else 0
 
     window_hours = None
     if args.backfill_days is not None:
@@ -989,7 +1003,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     if result.message:
         print(result.message)
-    if result.status == "failed":
+    if result.status in ("failed", "degraded"):
         return 1
     return 0
 

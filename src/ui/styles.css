@@ -393,6 +393,22 @@ div[data-testid="column"] div.stButton > button {
   color: #8C9FA4;
   border: 1px solid #8C9FA4;
 }
+.ci-run-status {
+  display: inline-block;
+  padding: 0.15rem 0.65rem;
+  border-radius: 9999px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  background: #1B2147;
+  color: #FFFFFF;
+}
+.ci-run-status-ok { background: #025803; }
+.ci-run-status-failed { background: #7A1F1F; }
+.ci-run-status-degraded {
+  background: #6B4E00;
+  color: #FFE08A;
+  box-shadow: 0 0 0 1px #E6A23C;
+}
 .ci-card-implication {
   margin: 0.35rem 0 0.5rem;
   color: var(--ci-text-secondary);
@@ -616,16 +632,19 @@ div[data-testid="stHorizontalBlock"]:has(.ci-digest-controls-marker) {
   font-weight: 700;
   font-size: 0.98rem;
 }
-.ci-run-table th:nth-child(1) { width: 18%; }
-.ci-run-table th:nth-child(2) { width: 10%; }
-.ci-run-table th:nth-child(3) { width: 10%; }
+.ci-run-table th:nth-child(1) { width: 14%; }
+.ci-run-table th:nth-child(2) { width: 8%; }
+.ci-run-table th:nth-child(3) { width: 9%; }
 .ci-run-table th:nth-child(4),
 .ci-run-table th:nth-child(5),
-.ci-run-table th:nth-child(6) { width: 8%; }
+.ci-run-table th:nth-child(6),
 .ci-run-table th:nth-child(7),
+.ci-run-table th:nth-child(8),
+.ci-run-table th:nth-child(9) { width: 7%; }
+.ci-run-table th:nth-child(10),
 .ci-run-table td.ci-run-err {
-  width: 28%;
-  max-width: 220px;
+  width: 20%;
+  max-width: 200px;
   white-space: nowrap;
   overflow: visible;
   vertical-align: middle;

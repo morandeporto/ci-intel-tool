@@ -15,7 +15,7 @@ DIMENSION_NAMES = (
 )
 
 Vote = Literal["up", "down"]
-RunStatus = Literal["running", "success", "partial", "failed"]
+RunStatus = Literal["running", "success", "partial", "failed", "degraded"]
 RunTrigger = Literal["cron", "manual", "seed"]
 
 

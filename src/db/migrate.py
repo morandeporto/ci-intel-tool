@@ -78,6 +78,23 @@ def migrate_schema(conn: Any) -> list[str]:
     ):
         changes.append("news_items.is_fallback")
 
+    if _table_exists(conn, "pipeline_runs"):
+        if _add_column_if_missing(
+            conn,
+            "pipeline_runs",
+            "items_classified_ok",
+            "INTEGER NOT NULL DEFAULT 0",
+        ):
+            changes.append("pipeline_runs.items_classified_ok")
+        if _add_column_if_missing(
+            conn, "pipeline_runs", "items_fallback", "INTEGER NOT NULL DEFAULT 0"
+        ):
+            changes.append("pipeline_runs.items_fallback")
+        if _add_column_if_missing(
+            conn, "pipeline_runs", "retries_used", "INTEGER NOT NULL DEFAULT 0"
+        ):
+            changes.append("pipeline_runs.retries_used")
+
     if not _table_exists(conn, "source_run_stats"):
         conn.execute(
             """

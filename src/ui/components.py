@@ -297,6 +297,18 @@ def _render_error_popup(raw: str | None, uid: str) -> tuple[str, str]:
     return trigger, modal
 
 
+def _status_badge_html(status: str | None) -> str:
+    raw = str(status or "")
+    cls = "ci-run-status"
+    if raw == "degraded":
+        cls += " ci-run-status-degraded"
+    elif raw == "failed":
+        cls += " ci-run-status-failed"
+    elif raw == "success":
+        cls += " ci-run-status-ok"
+    return f'<span class="{cls}">{_e(raw)}</span>'
+
+
 def render_run_history(runs: list[dict[str, Any]]) -> str:
     if not runs:
         return '<p class="ci-muted">No pipeline runs recorded yet.</p>'
@@ -306,10 +318,13 @@ def render_run_history(runs: list[dict[str, Any]]) -> str:
     for i, r in enumerate(runs):
         started = format_israel_time(r.get("started_at"))
         trigger = _e(r.get("trigger"))
-        status = _e(r.get("status"))
+        status_html = _status_badge_html(r.get("status"))
         fetched = _e(r.get("items_fetched"))
         new = _e(r.get("items_new"))
         scored = _e(r.get("items_scored"))
+        ok = _e(r.get("items_classified_ok") if r.get("items_classified_ok") is not None else "—")
+        fallback = _e(r.get("items_fallback") if r.get("items_fallback") is not None else "—")
+        retries = _e(r.get("retries_used") if r.get("retries_used") is not None else "—")
         uid = _e(r.get("id") if r.get("id") is not None else i)
         err_d_trigger, err_d_modal = _render_error_popup(r.get("error_message"), f"d-{uid}")
         err_m_trigger, err_m_modal = _render_error_popup(r.get("error_message"), f"m-{uid}")
@@ -321,9 +336,12 @@ def render_run_history(runs: list[dict[str, Any]]) -> str:
             "<tr>"
             f"<td>{_e(started)}</td>"
             f"<td>{trigger}</td>"
-            f"<td>{status}</td>"
+            f"<td>{status_html}</td>"
             f"<td>{fetched}</td>"
             f"<td>{new}</td>"
+            f"<td>{ok}</td>"
+            f"<td>{fallback}</td>"
+            f"<td>{retries}</td>"
             f"<td>{scored}</td>"
             f'<td class="ci-run-err">{err_d_trigger}</td>'
             "</tr>"
@@ -331,14 +349,16 @@ def render_run_history(runs: list[dict[str, Any]]) -> str:
         cards_html.append(
             f'<article class="ci-run-card">'
             f'<div class="ci-run-card-top">'
-            f'<span class="ci-run-card-status">{status}</span>'
+            f"{status_html}"
             f'<span class="ci-muted">{_e(started)}</span>'
             f"</div>"
             f'<div class="ci-run-card-meta">Trigger: {trigger}</div>'
             f'<div class="ci-run-card-stats">'
             f"<span>Fetched <strong>{fetched}</strong></span>"
             f"<span>New <strong>{new}</strong></span>"
-            f"<span>Scored <strong>{scored}</strong></span>"
+            f"<span>OK <strong>{ok}</strong></span>"
+            f"<span>Fallback <strong>{fallback}</strong></span>"
+            f"<span>Retries <strong>{retries}</strong></span>"
             f"</div>"
             f'<div class="ci-run-card-err">Error: {err_m_trigger}</div>'
             f"</article>"
@@ -349,7 +369,8 @@ def render_run_history(runs: list[dict[str, Any]]) -> str:
         <thead>
           <tr>
             <th>Started (Israel)</th><th>Trigger</th><th>Status</th>
-            <th>Fetched</th><th>New</th><th>Scored</th><th>Error</th>
+            <th>Fetched</th><th>New</th><th>OK</th><th>Fallback</th>
+            <th>Retries</th><th>Scored</th><th>Error</th>
           </tr>
         </thead>
         <tbody>{"".join(rows_html)}</tbody>

@@ -5,11 +5,14 @@ CREATE TABLE IF NOT EXISTS pipeline_runs (
     id TEXT PRIMARY KEY,
     started_at TEXT NOT NULL,
     finished_at TEXT,
-    status TEXT NOT NULL,              -- running | success | partial | failed
+    status TEXT NOT NULL,              -- running | success | partial | degraded | failed
     trigger TEXT NOT NULL,             -- cron | manual | seed
     items_fetched INTEGER NOT NULL DEFAULT 0,
     items_new INTEGER NOT NULL DEFAULT 0,
     items_scored INTEGER NOT NULL DEFAULT 0,
+    items_classified_ok INTEGER NOT NULL DEFAULT 0,
+    items_fallback INTEGER NOT NULL DEFAULT 0,
+    retries_used INTEGER NOT NULL DEFAULT 0,
     error_message TEXT
 );
 

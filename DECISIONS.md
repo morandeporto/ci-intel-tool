@@ -5,6 +5,31 @@ Maintained as decisions are made (see `.cursorrules`).
 
 ---
 
+## [2026-10-03] Pipeline degraded status for high fallback rate
+
+**Selected Option:** Persist `items_classified_ok`, `items_fallback`, and
+`retries_used` on `pipeline_runs`. Mark a run `status=degraded` when more than
+30% of attempted classifications used average fallback scores (visible badge in
+the Pipeline runs tab). Exit code 1 for both `failed` and `degraded`.
+
+**Alternatives Considered:**
+- Fold high fallback into `partial` only (rejected: operators cannot see outage vs mild noise)
+- Fail the run at any fallback (rejected: too brittle for transient single-item errors)
+
+**Rationale:** Reliability signal — Gemini 503 bursts must surface as degraded, not
+quiet partial success, so cron/GHA and the UI can act.
+
+**How to Explain in an Interview (20–30 Seconds Verbal):**
+> "When the model is overloaded we retry with backoff, limit concurrency, and heal
+> fallbacks on the next run. If more than 30% still fall back, the run is marked
+> degraded with OK/fallback/retry counts in the Pipeline runs tab."
+
+**JFrog Product Connection (If applicable):**
+Same idea as Xray contextual severity — not every failure is equal; degraded tells
+you the pipeline ran but quality is impaired.
+
+---
+
 ## [2026-10-03] Source coverage: competitors, emerging players, industry
 
 **Selected Option:** Tag every source with `kind` (`official_competitor` | `emerging` |
