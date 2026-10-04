@@ -97,9 +97,9 @@ pytest -q
 flowchart LR
   CFG["config/*.yaml"] --> SRC["RSS / Atom sources"]
   SRC --> FETCH["Concurrent fetch"]
-  FETCH --> FRESH["Freshness window"]
-  FRESH --> DEDUPE["URL + title-hash dedupe"]
-  DEDUPE --> GATE["Relevance gate"]
+  FETCH --> DEDUPE["URL + title-hash dedupe"]
+  DEDUPE --> FRESH["Freshness window"]
+  FRESH --> GATE["Relevance gate"]
   GATE --> SEL["Kind-balanced selection"]
   SEL --> LLM["Batched Gemini classify"]
   LLM --> SCORE["Weighted score in code"]
@@ -116,9 +116,9 @@ flowchart LR
 
 **Fetch.** Concurrent HTTP fetch (`fetch_concurrency`, `fetch_timeout_seconds` in `config/model.yaml`). Default identifiable User-Agent; only `jfrog_blog` uses a browser UA when the honest UA gets empty HTTP 202 responses.
 
-**Freshness window.** Keep items with `published_at` inside `window_hours` (default **48**). Future-dated items are dropped; missing dates are logged. `--backfill-days N` widens the window for a real backfill.
-
 **Dedupe.** Skip items already stored by **URL** or by **normalized title hash** (`src/process/dedupe.py`). Same story under two different titles can still appear twice.
+
+**Freshness window.** Keep items with `published_at` inside `window_hours` (default **48**). Future-dated items are dropped; missing dates are logged. `--backfill-days N` widens the window for a real backfill.
 
 **Relevance gate.** Per-source `gate: off` (official/emerging) or `gate: strict` (industry/community) using `config/relevance.yaml` strong keywords. Maintenance title patterns are excluded for all sources.
 
