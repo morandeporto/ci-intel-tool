@@ -101,11 +101,19 @@ CREATE TABLE IF NOT EXISTS source_run_stats (
 
 CREATE INDEX IF NOT EXISTS idx_source_run_stats_run ON source_run_stats(run_id);
 
--- Soft per-model daily call counters (pipeline | ask | rescore). Hard stop is API PerDay.
+-- Soft per-model daily call counters (pipeline | ask | rescore | compare). Hard stop is API PerDay.
 CREATE TABLE IF NOT EXISTS llm_usage (
     date_utc TEXT NOT NULL,
-    purpose TEXT NOT NULL,             -- pipeline | ask | rescore
+    purpose TEXT NOT NULL,             -- pipeline | ask | rescore | compare
     model TEXT NOT NULL,
     calls INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (date_utc, purpose, model)
+);
+
+-- Hard PerDay blocks: do not call the API for this model until blocked_until (UTC ISO).
+CREATE TABLE IF NOT EXISTS llm_model_blocks (
+    model TEXT PRIMARY KEY,
+    blocked_until TEXT NOT NULL,
+    retry_hint TEXT,
+    updated_at TEXT NOT NULL
 );

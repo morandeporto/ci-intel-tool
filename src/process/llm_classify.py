@@ -21,8 +21,10 @@ from src.db.models import DIMENSION_NAMES
 from src.ingest.normalize import NormalizedEntry
 from src.process.llm_quota import (
     DailyQuotaError,
+    compute_blocked_until,
     extract_retry_hint,
     is_daily_quota_error,
+    log_blocked_until,
     model_daily_limit,
     quota_day_key,
     raise_if_daily_quota,
@@ -136,7 +138,7 @@ class ClassifyError(Exception):
 
 
 class LlmUsageGuard:
-    """Soft per-model daily budget + call counter (optional, tests may omit)."""
+    """Soft per-model daily budget, hard PerDay blocks, and call counter."""
 
     def __init__(
         self,
@@ -155,6 +157,29 @@ class LlmUsageGuard:
     def day_key(self) -> str:
         return quota_day_key(tz_name=self.tz_name)
 
+    def check_hard_block(self, *, now: datetime | None = None) -> None:
+        """Raise DailyQuotaError when ``llm_model_blocks.blocked_until`` is in the future."""
+        until = self.repo.get_model_blocked_until(self.model_id)
+        if until is None:
+            return
+        now = now or datetime.now(timezone.utc)
+        if now.tzinfo is None:
+            now = now.replace(tzinfo=timezone.utc)
+        if until <= now.astimezone(timezone.utc):
+            # Expired block — clear so future reads stay cheap.
+            try:
+                self.repo.clear_model_block(self.model_id)
+            except Exception:  # noqa: BLE001 - best-effort cleanup
+                pass
+            return
+        raise DailyQuotaError(
+            f"Model {self.model_id} hard-blocked until {until.isoformat()}",
+            model_id=self.model_id,
+            retry_hint=None,
+            soft_budget=False,
+            blocked_until=until,
+        )
+
     def check_soft_budget(self) -> None:
         limit = model_daily_limit(self.cfg, self.model_id)
         if limit is None:
@@ -166,6 +191,36 @@ class LlmUsageGuard:
                 model_id=self.model_id,
                 soft_budget=True,
             )
+
+    def check_before_call(self) -> None:
+        """Hard block first (no API), then soft daily budget."""
+        self.check_hard_block()
+        self.check_soft_budget()
+
+    def record_hard_quota_block(
+        self,
+        exc: BaseException | DailyQuotaError,
+        *,
+        now: datetime | None = None,
+    ) -> datetime:
+        """Persist blocked_until from a hard PerDay error; return the stored timestamp."""
+        if isinstance(exc, DailyQuotaError) and exc.soft_budget:
+            # Soft budgets must not create hard API blocks.
+            return exc.blocked_until or compute_blocked_until(None, now=now)
+        hint = None
+        blocked_until = None
+        if isinstance(exc, DailyQuotaError):
+            hint = exc.retry_hint
+            blocked_until = exc.blocked_until
+        if hint is None:
+            hint = extract_retry_hint(exc)
+        if blocked_until is None:
+            blocked_until = compute_blocked_until(hint, now=now)
+        self.repo.set_model_blocked_until(
+            self.model_id, blocked_until, retry_hint=hint
+        )
+        log_blocked_until(self.model_id, blocked_until, retry_hint=hint)
+        return blocked_until
 
     def record_call(self, calls: int = 1) -> None:
         self.repo.increment_llm_usage(
@@ -593,11 +648,13 @@ def _reraise_quota_or_classify(exc: BaseException, *, model_id: str) -> None:
     msg = str(exc)
     if "429" in msg and is_transient_error(exc):
         hint = extract_retry_hint(exc)
+        blocked_until = compute_blocked_until(hint)
         raise DailyQuotaError(
             f"Repeated 429s after retries for model {model_id}: {exc}",
             model_id=model_id,
             retry_hint=hint,
             soft_budget=False,
+            blocked_until=blocked_until,
         ) from exc
     if isinstance(exc, ClassifyError):
         raise exc
@@ -630,7 +687,7 @@ def classify_entry(
     max_retry_seconds = float(cfg.get("llm_retry_max_seconds", 20.0))
 
     if usage_guard is not None:
-        usage_guard.check_soft_budget()
+        usage_guard.check_before_call()
 
     key = api_key if api_key is not None else _require_api_key()
     today_utc = datetime.now(timezone.utc).date().isoformat()
@@ -652,10 +709,17 @@ def classify_entry(
                 timeout_seconds=timeout_seconds,
                 temperature=0.2,
             )
-        except DailyQuotaError:
+        except DailyQuotaError as exc:
+            if usage_guard is not None and not exc.soft_budget:
+                usage_guard.record_hard_quota_block(exc)
             raise
         except Exception as exc:  # noqa: BLE001
-            raise_if_daily_quota(exc, model_id=model_id)
+            try:
+                raise_if_daily_quota(exc, model_id=model_id)
+            except DailyQuotaError as quota_exc:
+                if usage_guard is not None:
+                    usage_guard.record_hard_quota_block(quota_exc)
+                raise
             raise
 
     try:
@@ -777,7 +841,7 @@ def classify_entries_batch(
         raise ClassifyError("batch item ids must be unique")
 
     if usage_guard is not None:
-        usage_guard.check_soft_budget()
+        usage_guard.check_before_call()
 
     key = api_key if api_key is not None else _require_api_key()
     today_utc = datetime.now(timezone.utc).date().isoformat()
@@ -800,10 +864,17 @@ def classify_entries_batch(
                 response_schema=BatchedClassificationResponse,
                 temperature=0.2,
             )
-        except DailyQuotaError:
+        except DailyQuotaError as exc:
+            if usage_guard is not None and not exc.soft_budget:
+                usage_guard.record_hard_quota_block(exc)
             raise
         except Exception as exc:  # noqa: BLE001
-            raise_if_daily_quota(exc, model_id=model_id)
+            try:
+                raise_if_daily_quota(exc, model_id=model_id)
+            except DailyQuotaError as quota_exc:
+                if usage_guard is not None:
+                    usage_guard.record_hard_quota_block(quota_exc)
+                raise
             raise
 
     try:
@@ -813,10 +884,18 @@ def classify_entries_batch(
             base_seconds=base_seconds,
             max_seconds=max_retry_seconds,
         )
-    except DailyQuotaError:
+    except DailyQuotaError as exc:
+        if usage_guard is not None and not exc.soft_budget:
+            # May already be recorded inside _once; upsert is idempotent.
+            usage_guard.record_hard_quota_block(exc)
         raise
     except Exception as exc:  # noqa: BLE001
-        _reraise_quota_or_classify(exc, model_id=model_id)
+        try:
+            _reraise_quota_or_classify(exc, model_id=model_id)
+        except DailyQuotaError as quota_exc:
+            if usage_guard is not None:
+                usage_guard.record_hard_quota_block(quota_exc)
+            raise
         raise  # pragma: no cover
 
     if usage_guard is not None:

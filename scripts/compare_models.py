@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
-"""A/B compare OLD vs NEW scoring rubric on fixed stored titles (no DB writes).
+"""A/B/C compare scoring rubrics + models on fixed stored titles (no DB writes).
 
-Primary model only. Batches of 5 → about 6 live generate_content calls
-(3 batches × 2 rubric versions) for 13 items.
+Configurations (same 13 items, batches of 5):
+  A. gemini-3.8-flash + LEGACY rubric  → 3 live calls
+  B. gemini-3.8-flash + CURRENT rubric → 3 live calls
+  C. gemini-3.5-flash-lite + CURRENT   → 3 live calls
 
 Groups:
   - targets (3): items previously over-scored / under discussion
@@ -27,12 +29,14 @@ from src.db.connection import get_connection, init_db, turso_configured
 from src.db.repository import Repository
 from src.ingest.normalize import NormalizedEntry
 from src.process.llm_classify import (
+    LlmUsageGuard,
     batch_item_id,
     chunk_entries,
     classify_entries_batch,
 )
 from src.process.llm_quota import (
     DailyQuotaError,
+    format_reset_times,
     model_min_interval_seconds,
     resolve_pipeline_model,
 )
@@ -60,9 +64,19 @@ HIGH_TITLES = [
     "Agents Pick Dependencies, DoWI 8430.01 Holds You Accountable",
 ]
 
+# (label, model_id resolver key, legacy_rubric)
+# model_id is filled at runtime from config.
+CONFIGS = (
+    ("A", "primary", True),
+    ("B", "primary", False),
+    ("C", "fallback", False),
+)
+
 
 def _norm(title: str) -> str:
-    return " ".join((title or "").lower().split())
+    # Normalize curly/smart quotes so fixed needles match stored titles.
+    t = (title or "").lower().replace("\u2019", "'").replace("\u2018", "'")
+    return " ".join(t.split())
 
 
 def _find_row(rows: list[dict], needle: str) -> dict | None:
@@ -101,6 +115,11 @@ def _to_entry(row: dict) -> NormalizedEntry:
     )
 
 
+def _short_title(title: str, width: int = 48) -> str:
+    t = " ".join((title or "").split())
+    return t if len(t) <= width else t[: width - 1] + "…"
+
+
 def _score_entries(
     entries: list[NormalizedEntry],
     *,
@@ -108,24 +127,50 @@ def _score_entries(
     cfg: dict,
     weights: dict[str, float],
     legacy_rubric: bool,
+    finished: list[str],
+    config_label: str,
+    usage_guard: LlmUsageGuard,
 ) -> dict[str, float]:
-    """Classify in batches of 5. Returns content_hash -> weighted total. No DB writes."""
+    """Classify in batches of 5. Returns content_hash -> weighted total.
+
+    News rows are not written; ``llm_usage`` / ``llm_model_blocks`` are updated
+    via ``usage_guard`` so compare runs respect hard PerDay cooldowns.
+    """
+    # Keep the guard pointed at the model we are about to call.
+    usage_guard.model_id = model_id
     configure_llm_interval(model_min_interval_seconds(cfg, model_id))
     out: dict[str, float] = {}
-    for batch in chunk_entries(entries, 5):
+    batches = list(chunk_entries(entries, 5))
+    for i, batch in enumerate(batches, start=1):
         ids = [batch_item_id(e) for e in batch]
-        accepted, missing, _retries = classify_entries_batch(
-            batch,
-            model_config=cfg,
-            item_ids=ids,
-            model_id_override=model_id,
-            usage_guard=None,  # throwaway - do not touch llm_usage soft counters
-            legacy_rubric=legacy_rubric,
-        )
-        if missing:
-            tag = "OLD" if legacy_rubric else "NEW"
+        try:
+            accepted, missing, _retries = classify_entries_batch(
+                batch,
+                model_config=cfg,
+                item_ids=ids,
+                model_id_override=model_id,
+                usage_guard=usage_guard,
+                legacy_rubric=legacy_rubric,
+            )
+        except DailyQuotaError as exc:
+            until = exc.blocked_until
+            if until is not None:
+                utc_label, israel_label = format_reset_times(until)
+                print(
+                    f"Model {model_id} blocked until UTC={utc_label} "
+                    f"Israel={israel_label}",
+                    file=sys.stderr,
+                )
             print(
-                f"WARNING: {tag} rubric missing ids after batch: {missing}",
+                f"STOPPED on quota during config {config_label} "
+                f"batch {i}/{len(batches)}. Finished configs: {finished or ['(none)']}",
+                file=sys.stderr,
+            )
+            raise
+        if missing:
+            tag = "LEGACY" if legacy_rubric else "CURRENT"
+            print(
+                f"WARNING: {config_label} ({tag}) missing ids after batch: {missing}",
                 file=sys.stderr,
             )
         for item_id, result in accepted.items():
@@ -133,40 +178,60 @@ def _score_entries(
     return out
 
 
+def _scores_for_group(
+    rows: list[dict],
+    scores_by_config: dict[str, dict[str, float]],
+) -> dict[str, list[float]]:
+    """Collect per-config score lists for a group (skip missing)."""
+    collected: dict[str, list[float]] = {k: [] for k in scores_by_config}
+    for row in rows:
+        iid = batch_item_id(_to_entry(row))
+        if all(iid in scores_by_config[k] for k in scores_by_config):
+            for k in scores_by_config:
+                collected[k].append(scores_by_config[k][iid])
+    return collected
+
+
 def _print_group_table(
     label: str,
     rows: list[dict],
-    scores_old: dict[str, float],
-    scores_new: dict[str, float],
-) -> tuple[float, float, int, int]:
-    """Print one table; return (mean_old, mean_new, n_ge3_old, n_ge3_new)."""
+    scores_by_config: dict[str, dict[str, float]],
+) -> None:
     print(f"=== {label} ({len(rows)} items) ===")
-    print(f"{'title':<56} {'old':>6} {'new':>6} {'diff':>7}")
-    print("-" * 78)
-    olds: list[float] = []
-    news: list[float] = []
+    print(f"{'title':<50} {'A':>6} {'B':>6} {'C':>6}")
+    print("-" * 72)
     for row in rows:
         entry = _to_entry(row)
         iid = batch_item_id(entry)
-        title = (row.get("title") or "")[:54]
-        old = scores_old.get(iid)
-        new = scores_new.get(iid)
-        if old is None or new is None:
-            print(f"{title:<56} {'?':>6} {'?':>6} {'n/a':>7}")
-            continue
-        olds.append(old)
-        news.append(new)
-        print(f"{title:<56} {old:6.2f} {new:6.2f} {new - old:+7.2f}")
-    mean_old = sum(olds) / len(olds) if olds else 0.0
-    mean_new = sum(news) / len(news) if news else 0.0
-    ge3_old = sum(1 for v in olds if v >= 3.0)
-    ge3_new = sum(1 for v in news if v >= 3.0)
-    print(
-        f"mean old={mean_old:.3f}  mean new={mean_new:.3f}  "
-        f">=3.0 old={ge3_old}/{len(olds)}  new={ge3_new}/{len(news)}"
-    )
+        title = _short_title(str(row.get("title") or ""), 48)
+        vals = []
+        for key in ("A", "B", "C"):
+            v = scores_by_config.get(key, {}).get(iid)
+            vals.append(f"{v:6.2f}" if v is not None else f"{'?':>6}")
+        print(f"{title:<50} {vals[0]} {vals[1]} {vals[2]}")
     print()
-    return mean_old, mean_new, ge3_old, ge3_new
+
+
+def _mean(vals: list[float]) -> float:
+    return sum(vals) / len(vals) if vals else 0.0
+
+
+def _ge3(vals: list[float]) -> int:
+    return sum(1 for v in vals if v >= 3.0)
+
+
+def _top_n_ids(
+    rows: list[dict],
+    scores: dict[str, float],
+    n: int = 3,
+) -> list[str]:
+    ranked: list[tuple[float, str]] = []
+    for row in rows:
+        iid = batch_item_id(_to_entry(row))
+        if iid in scores:
+            ranked.append((scores[iid], iid))
+    ranked.sort(key=lambda t: (-t[0], t[1]))
+    return [iid for _, iid in ranked[:n]]
 
 
 def main() -> int:
@@ -184,8 +249,8 @@ def main() -> int:
         highs = _pick_group(rows, HIGH_TITLES, "high")
         groups = [
             ("targets", targets),
-            ("low (should stay LOW)", lows),
-            ("high (should stay HIGH)", highs),
+            ("expected-low", lows),
+            ("expected-high", highs),
         ]
         all_rows = targets + lows + highs
         if len(all_rows) != 13:
@@ -197,73 +262,116 @@ def main() -> int:
 
         cfg = load_model_config()
         weights = load_weights()
-        model_id = resolve_pipeline_model(cfg, use_fallback=False)
-        entries = [_to_entry(r) for r in all_rows]
-        n_batches = len(chunk_entries(entries, 5))
-        live_calls = n_batches * 2
+        primary = resolve_pipeline_model(cfg, use_fallback=False)
+        fallback = resolve_pipeline_model(cfg, use_fallback=True)
+        model_for = {"primary": primary, "fallback": fallback}
 
-        print(f"Rubric A/B on {len(entries)} stored items (primary model only)")
-        print(f"  model: {model_id}")
-        print(f"  rubric OLD = SCORING_CALIBRATION_LEGACY")
+        entries = [_to_entry(r) for r in all_rows]
+        n_batches = len(list(chunk_entries(entries, 5)))
+
+        print("Configs on 13 fixed items (batches of 5), in-memory only — no DB writes")
+        print(f"  A: {primary} + LEGACY rubric  (~{n_batches} calls)")
         print(
-            f"  rubric NEW = SCORING_CALIBRATION_CURRENT "
-            f"(config rubric_version={cfg.get('rubric_version')!r})"
+            f"  B: {primary} + CURRENT rubric "
+            f"(rubric_version={cfg.get('rubric_version')!r})  (~{n_batches} calls)"
         )
-        print(f"  batches of 5 × 2 rubrics ≈ {live_calls} live calls")
-        print(f"  in-memory only — no DB writes")
+        print(f"  C: {fallback} + CURRENT rubric  (~{n_batches} calls)")
+        print(
+            f"  min delay: {primary}={model_min_interval_seconds(cfg, primary)}s, "
+            f"{fallback}={model_min_interval_seconds(cfg, fallback)}s"
+        )
         print()
 
-        try:
-            scores_old = _score_entries(
-                entries,
-                model_id=model_id,
-                cfg=cfg,
-                weights=weights,
-                legacy_rubric=True,
-            )
-        except DailyQuotaError as exc:
-            print(
-                f"STOPPED: {model_id} hit daily PerDay quota during OLD rubric "
-                f"(hint={exc.retry_hint!r}).",
-                file=sys.stderr,
-            )
-            return 3
-        try:
-            scores_new = _score_entries(
-                entries,
-                model_id=model_id,
-                cfg=cfg,
-                weights=weights,
-                legacy_rubric=False,
-            )
-        except DailyQuotaError as exc:
-            print(
-                f"STOPPED: {model_id} hit daily PerDay quota during NEW rubric "
-                f"(hint={exc.retry_hint!r}).",
-                file=sys.stderr,
-            )
-            return 3
-
-        summary_rows: list[tuple[str, float, float, int, int, int]] = []
-        for label, group_rows in groups:
-            mean_old, mean_new, ge3_old, ge3_new = _print_group_table(
-                label, group_rows, scores_old, scores_new
-            )
-            summary_rows.append(
-                (label, mean_old, mean_new, ge3_old, ge3_new, len(group_rows))
-            )
-
-        print("=== group summary ===")
-        print(
-            f"{'group':<28} {'mean_old':>9} {'mean_new':>9} "
-            f"{'>=3 old':>8} {'>=3 new':>8}"
+        scores_by_config: dict[str, dict[str, float]] = {}
+        finished: list[str] = []
+        # Shared guard: increments llm_usage and honors llm_model_blocks.
+        usage_guard = LlmUsageGuard(
+            repo, cfg, purpose="compare", model_id=primary
         )
-        print("-" * 68)
-        for label, mean_old, mean_new, ge3_old, ge3_new, n in summary_rows:
+
+        for label, model_key, legacy in CONFIGS:
+            model_id = model_for[model_key]
+            rubric = "LEGACY" if legacy else "CURRENT"
+            print(f"Running config {label}: {model_id} / {rubric} ...", flush=True)
+            try:
+                scores_by_config[label] = _score_entries(
+                    entries,
+                    model_id=model_id,
+                    cfg=cfg,
+                    weights=weights,
+                    legacy_rubric=legacy,
+                    finished=finished,
+                    config_label=label,
+                    usage_guard=usage_guard,
+                )
+            except DailyQuotaError as exc:
+                print(
+                    f"STOPPED: {model_id} hit daily PerDay quota during config {label} "
+                    f"(hint={exc.retry_hint!r}).",
+                    file=sys.stderr,
+                )
+                print(f"Finished configs before stop: {finished or ['(none)']}")
+                if scores_by_config:
+                    print("Partial scores available for:", ", ".join(scores_by_config))
+                return 3
+            finished.append(label)
+            print(f"  done {label} ({len(scores_by_config[label])} scores)", flush=True)
+
+        print()
+        for label, group_rows in groups:
+            _print_group_table(label, group_rows, scores_by_config)
+
+        print("=== group means & >=3.0 counts ===")
+        print(
+            f"{'group':<16} {'mean_A':>7} {'mean_B':>7} {'mean_C':>7} "
+            f"{'>=3 A':>7} {'>=3 B':>7} {'>=3 C':>7}"
+        )
+        print("-" * 66)
+        for label, group_rows in groups:
+            collected = _scores_for_group(group_rows, scores_by_config)
+            n = len(collected["A"])
             print(
-                f"{label:<28} {mean_old:9.3f} {mean_new:9.3f} "
-                f"{ge3_old:>3}/{n:<3} {ge3_new:>3}/{n:<3}"
+                f"{label:<16} {_mean(collected['A']):7.3f} {_mean(collected['B']):7.3f} "
+                f"{_mean(collected['C']):7.3f} "
+                f"{_ge3(collected['A']):>3}/{n:<3} {_ge3(collected['B']):>3}/{n:<3} "
+                f"{_ge3(collected['C']):>3}/{n:<3}"
             )
+
+        # B vs C agreement metrics across all 13 items
+        print()
+        print("=== B vs C (CURRENT rubric: primary vs flash-lite) ===")
+        abs_diffs: list[float] = []
+        large_diff_rows: list[tuple[str, float, float, float]] = []
+        for row in all_rows:
+            iid = batch_item_id(_to_entry(row))
+            b = scores_by_config["B"].get(iid)
+            c = scores_by_config["C"].get(iid)
+            if b is None or c is None:
+                continue
+            diff = abs(b - c)
+            abs_diffs.append(diff)
+            if diff >= 0.8:
+                large_diff_rows.append(
+                    (_short_title(str(row.get("title") or ""), 48), b, c, b - c)
+                )
+
+        mad = _mean(abs_diffs)
+        top_b = set(_top_n_ids(all_rows, scores_by_config["B"], 3))
+        top_c = set(_top_n_ids(all_rows, scores_by_config["C"], 3))
+        overlap = len(top_b & top_c)
+        print(f"mean |B-C| = {mad:.3f}  (n={len(abs_diffs)})")
+        print(f"top-3 overlap B∩C = {overlap}/3")
+
+        if large_diff_rows:
+            print()
+            print("items where |B-C| >= 0.8:")
+            print(f"{'title':<50} {'B':>6} {'C':>6} {'B-C':>7}")
+            print("-" * 72)
+            for title, b, c, signed in large_diff_rows:
+                print(f"{title:<50} {b:6.2f} {c:6.2f} {signed:+7.2f}")
+        else:
+            print("No items with |B-C| >= 0.8")
+
         return 0
     finally:
         conn.close()

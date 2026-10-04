@@ -5,6 +5,35 @@ Maintained as decisions are made (see `.cursorrules`).
 
 ---
 
+## [2026-10-04] Persist hard PerDay `blocked_until` per model
+
+**Selected Option:** On a hard Gemini PerDay error, parse the retry hint
+(e.g. `18h55m33s`), store `blocked_until = now + hint + 120s` in
+`llm_model_blocks`, and skip API calls for that model until then. Pipeline
+marks items `pending_scoring` (or switches to `fallback_model` if unblocked);
+Ask shows a friendly message with UTC + Asia/Jerusalem reset times.
+
+**Alternatives Considered:**
+- Rely only on soft `llm_usage` budgets (rejected: scripts/UI can still burn
+  the hard free-tier cap)
+- Process-local in-memory cooldown (rejected: lost across cron / Ask / scripts)
+- Hardcode a reset hour (rejected: provider hint is the source of truth)
+
+**Rationale:** Cost/Reliability - one shared cooldown across all callers
+(SQLite or Turso) stops wasted generate attempts after the hard daily quota.
+
+**How to Explain in an Interview (20-30 Seconds Verbal):**
+> "When Google returns PerDay, we parse the retry hint, persist blocked_until
+> with a small safety margin, and every path — pipeline, Ask, compare scripts —
+> checks that row before calling the API. Soft budgets stay advisory; the hard
+> block is the real backstop."
+
+**JFrog Product Connection (If applicable):**
+Similar to Xray/Artifactory rate-limit cooldowns — respect the upstream quota
+signal once, then fail closed until the window reopens.
+
+---
+
 ## [2026-10-03] UI Run Now limit as config (`ui_run_now_limit`)
 
 **Selected Option:** Cap Streamlit **Run Now** via `ui_run_now_limit` in

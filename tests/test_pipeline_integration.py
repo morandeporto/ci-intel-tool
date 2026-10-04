@@ -660,6 +660,11 @@ def test_rescore_heals_pending_after_quota(
         classified_before = {
             r["url"] for r in _all_news(conn) if r["status"] == "classified"
         }
+        # Simulate free-tier reset: hard PerDay cooldown must expire (or be
+        # cleared) before nightly rescore can call the API again.
+        assert conn.execute("SELECT COUNT(*) FROM llm_model_blocks").fetchone()[0] >= 1
+        conn.execute("DELETE FROM llm_model_blocks")
+        conn.commit()
     finally:
         conn.close()
 

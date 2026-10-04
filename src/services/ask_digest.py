@@ -20,6 +20,7 @@ from src.db.repository import Repository
 from src.process.llm_classify import ClassifyError, LlmUsageGuard
 from src.process.llm_quota import (
     DailyQuotaError,
+    friendly_quota_message,
     is_daily_quota_error,
     model_min_interval_seconds,
     raise_if_daily_quota,
@@ -28,11 +29,8 @@ from src.process.llm_quota import (
 from src.process.llm_rate_limit import configure_llm_interval, wait_llm_interval
 from src.services.comparison import get_comparison_matrix
 
-QUOTA_FRIENDLY_MESSAGE = (
-    "Ask the Digest has hit today's Gemini free-tier quota for this model. "
-    "Please try again after the quota resets, or ask your operator to point "
-    "ask_model at another model id in config/model.yaml."
-)
+# Fallback text when no blocked_until is known (soft budget / missing hint).
+QUOTA_FRIENDLY_MESSAGE = friendly_quota_message()
 
 load_dotenv(PROJECT_ROOT / ".env")
 
@@ -275,9 +273,13 @@ def ask_digest(
 
     usage_guard = LlmUsageGuard(repo, cfg, purpose="ask", model_id=model_id)
     try:
-        usage_guard.check_soft_budget()
-    except DailyQuotaError:
-        raise ClassifyError(QUOTA_FRIENDLY_MESSAGE)
+        usage_guard.check_before_call()
+    except DailyQuotaError as exc:
+        raise ClassifyError(
+            friendly_quota_message(
+                blocked_until=exc.blocked_until, model_id=model_id
+            )
+        ) from exc
 
     configure_llm_interval(model_min_interval_seconds(cfg, model_id))
     try:
@@ -290,14 +292,29 @@ def ask_digest(
             request_options=RequestOptions(timeout=timeout_seconds),
         )
         answer = (response.text or "").strip()
-    except DailyQuotaError:
-        raise ClassifyError(QUOTA_FRIENDLY_MESSAGE)
+    except DailyQuotaError as exc:
+        if not exc.soft_budget:
+            usage_guard.record_hard_quota_block(exc)
+        raise ClassifyError(
+            friendly_quota_message(
+                blocked_until=exc.blocked_until or usage_guard.repo.get_model_blocked_until(
+                    model_id
+                ),
+                model_id=model_id,
+            )
+        ) from exc
     except Exception as exc:  # noqa: BLE001
         if is_daily_quota_error(exc):
             try:
                 raise_if_daily_quota(exc, model_id=model_id)
-            except DailyQuotaError:
-                raise ClassifyError(QUOTA_FRIENDLY_MESSAGE) from exc
+            except DailyQuotaError as quota_exc:
+                usage_guard.record_hard_quota_block(quota_exc)
+                raise ClassifyError(
+                    friendly_quota_message(
+                        blocked_until=quota_exc.blocked_until,
+                        model_id=model_id,
+                    )
+                ) from exc
         raise ClassifyError(f"Ask-digest Gemini call failed ({model_id}): {exc}") from exc
 
     if not answer:

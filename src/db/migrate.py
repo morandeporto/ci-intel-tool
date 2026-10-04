@@ -143,6 +143,20 @@ def migrate_schema(conn: Any) -> list[str]:
         changes.append("llm_usage")
         logger.info("Migrated: created llm_usage table")
 
+    if not _table_exists(conn, "llm_model_blocks"):
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS llm_model_blocks (
+                model TEXT PRIMARY KEY,
+                blocked_until TEXT NOT NULL,
+                retry_hint TEXT,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        changes.append("llm_model_blocks")
+        logger.info("Migrated: created llm_model_blocks table")
+
     if _table_exists(conn, "source_run_stats"):
         if _add_column_if_missing(conn, "source_run_stats", "warning", "TEXT"):
             changes.append("source_run_stats.warning")

@@ -577,6 +577,63 @@ class Repository:
             date_utc=date_utc, model=model, purpose=purpose
         )
 
+    # --- llm_model_blocks (hard PerDay cooldown) ------------------------
+    def get_model_blocked_until(self, model: str) -> datetime | None:
+        """Return UTC blocked_until for ``model``, or None if not blocked / expired."""
+        cur = self.conn.execute(
+            """
+            SELECT blocked_until FROM llm_model_blocks WHERE model = ?
+            """,
+            (model,),
+        )
+        row = cur.fetchone()
+        if row is None:
+            return None
+        raw = _scalar(row, "blocked_until", None)
+        if raw is None:
+            return None
+        text = str(raw).strip()
+        if not text:
+            return None
+        try:
+            if text.endswith("Z"):
+                text = text[:-1] + "+00:00"
+            dt = datetime.fromisoformat(text)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return dt.astimezone(timezone.utc)
+        except ValueError:
+            return None
+
+    def set_model_blocked_until(
+        self,
+        model: str,
+        blocked_until: datetime,
+        *,
+        retry_hint: str | None = None,
+    ) -> None:
+        """Upsert a hard block until ``blocked_until`` (stored as UTC ISO)."""
+        if blocked_until.tzinfo is None:
+            blocked_until = blocked_until.replace(tzinfo=timezone.utc)
+        until_utc = blocked_until.astimezone(timezone.utc).replace(microsecond=0)
+        self.conn.execute(
+            """
+            INSERT INTO llm_model_blocks (model, blocked_until, retry_hint, updated_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(model) DO UPDATE SET
+                blocked_until = excluded.blocked_until,
+                retry_hint = excluded.retry_hint,
+                updated_at = excluded.updated_at
+            """,
+            (model, until_utc.isoformat(), retry_hint, _utc_now()),
+        )
+        self.conn.commit()
+
+    def clear_model_block(self, model: str) -> None:
+        """Remove a hard block row (e.g. after a successful call past expiry)."""
+        self.conn.execute("DELETE FROM llm_model_blocks WHERE model = ?", (model,))
+        self.conn.commit()
+
     def list_pending_or_fallback_items(self) -> list[dict[str, Any]]:
         """Rows awaiting (re)scoring: pending_scoring or is_fallback."""
         cur = self.conn.execute(
