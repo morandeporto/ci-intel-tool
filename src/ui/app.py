@@ -19,6 +19,7 @@ if str(PROJECT_ROOT) not in sys.path:
 from src.db.connection import is_connection_error
 from src.db.models import DIMENSION_NAMES
 from src.db.repository import Repository
+from src.process.retry import sanitize_error_text
 from src.services.comparison import get_comparison_matrix
 from src.services.digest import (
     digest_kpis,
@@ -752,7 +753,7 @@ def main() -> None:
     try:
         repo, _db_path = get_repository()
     except Exception as exc:  # noqa: BLE001
-        st.error(f"Could not open database: {exc}")
+        st.error(f"Could not open database: {sanitize_error_text(str(exc))}")
         st.stop()
 
     handle_pending_action(repo)

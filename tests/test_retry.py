@@ -133,3 +133,13 @@ def test_summarize_model_failure_causes_counts_by_status() -> None:
     assert "[redacted]" in sanitize_error_text(
         "failed api_key=AIzaSyDummyKeyValue1234567890abcd"
     )
+
+
+def test_sanitize_error_text_redacts_turso_tokens():
+    from src.process.retry import sanitize_error_text
+
+    dummy_jwt = "eyJhbGciOiJFZERTQSJ9.eyJkdW1teSI6dHJ1ZX0.c2lnbmF0dXJl"
+    cleaned = sanitize_error_text(f"hrana handshake failed for token {dummy_jwt}")
+    assert "eyJ" not in cleaned
+    assert "[redacted]" in cleaned
+    assert "dummy-value" not in sanitize_error_text("auth_token=dummy-value rejected")

@@ -8,6 +8,7 @@ import streamlit as st
 
 from src.db.repository import Repository
 from src.process.llm_classify import ClassifyError
+from src.process.retry import sanitize_error_text
 from src.services.ask_digest import ChatTurn, ask_digest
 from src.services.feedback import record_feedback
 from src.services.weights import save_weights
@@ -132,10 +133,10 @@ def handle_pending_action(repo: Repository) -> None:
             )
         except ClassifyError as exc:
             st.session_state.pop("_ci_ask_result", None)
-            ok, message = False, str(exc)
+            ok, message = False, sanitize_error_text(str(exc), max_len=500)
         except Exception as exc:  # noqa: BLE001
             st.session_state.pop("_ci_ask_result", None)
-            ok, message = False, str(exc)
+            ok, message = False, sanitize_error_text(str(exc), max_len=500)
 
         st.session_state.pop(PENDING_KEY, None)
         st.session_state.pop(BUSY_KEY, None)

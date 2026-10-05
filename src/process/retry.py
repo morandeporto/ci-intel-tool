@@ -29,7 +29,8 @@ _TIMEOUT_MARKERS = (
 )
 # Strip secrets if a provider ever echoes them into exception text.
 _SECRET_RE = re.compile(
-    r"(AIza[0-9A-Za-z_-]{20,}|Bearer\s+\S+|api[_-]?key\s*[=:]\s*\S+)",
+    r"(AIza[0-9A-Za-z_-]{20,}|Bearer\s+\S+|api[_-]?key\s*[=:]\s*\S+"
+    r"|auth[_-]?token\s*[=:]\s*\S+|eyJ[0-9A-Za-z_-]{8,}\.[0-9A-Za-z_.-]+)",
     re.IGNORECASE,
 )
 _CAUSE_PREFIX_RE = re.compile(

@@ -1011,7 +1011,7 @@ def run_daily(
             except Exception:
                 pass
     except Exception as exc:  # noqa: BLE001 - top-level guard for run table status
-        message = f"Pipeline failed: {exc}"
+        message = f"Pipeline failed: {sanitize_error_text(str(exc), max_len=480)}"
         if run_id is not None:
             try:
                 conn = _connect()
