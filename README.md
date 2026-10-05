@@ -52,9 +52,19 @@ Leave `TURSO_DATABASE_URL` / `TURSO_AUTH_TOKEN` as placeholders (or blank) to us
 streamlit run src/ui/app.py
 ```
 
-An empty database shows a friendly empty state with a **Run Now** button (there is no committed seed/fake DB).
+An empty database shows: *No items yet. News is collected automatically by the daily workflow; see the Pipeline runs tab.* (there is no committed seed/fake DB). The dashboard displays data only — it does not run ingestion.
 
-### Run the pipeline
+### Trigger collection manually
+
+Ingestion runs in the background only (scheduled workflows, manual dispatch, or CLI) — not from the Streamlit UI.
+
+**GitHub Actions**
+
+1. Open the repo on GitHub → **Actions**
+2. Select **Daily CI Intel Ingest** (`daily_ingest.yml`)
+3. Click **Run workflow** (uses repository secrets for Gemini + Turso)
+
+**Locally (CLI)**
 
 ```bash
 # Fetch + freshness + gate + select + print — no LLM calls, no DB writes
@@ -83,7 +93,7 @@ pytest -q
 |-------------------|---------------------------|
 | Daily updates on industry / competitor news | Pipeline + GitHub Actions cron (`daily_ingest.yml` at 04:17 UTC); Daily Digest tab |
 | JFrog vs competitors comparison | Comparison tab + curated `config/comparison.yaml` (every claim sourced or Unknown) |
-| Real working solution (not a mockup) | Live RSS → classify → SQLite/Turso → Streamlit; **Run Now** and cron |
+| Real working solution (not a mockup) | Live RSS → classify → SQLite/Turso → Streamlit; GitHub Actions cron + manual/CLI ingest |
 | Design / architecture / mechanism | [Architecture](#architecture), [Key design decisions](#key-design-decisions), [DECISIONS.md](DECISIONS.md) |
 | A real UI | Streamlit app (`src/ui/app.py`) with four sections — see [UI tour](#ui-tour) |
 | Built-now vs future split | [Built now vs future work](#built-now-vs-future-work) |
@@ -122,7 +132,7 @@ flowchart LR
 
 **Relevance gate.** Per-source `gate: off` (official/emerging) or `gate: strict` (industry/community) using `config/relevance.yaml` strong keywords. Maintenance title patterns are excluded for all sources.
 
-**Selection.** Cap via `max_items_per_run` (20) and `max_per_source` (3), with reserved slots by kind (`selection.reserved_slots` in `config/model.yaml`). Cap-skipped items are not stored. UI **Run Now** uses `ui_run_now_limit` (10).
+**Selection.** Cap via `max_items_per_run` (20) and `max_per_source` (3), with reserved slots by kind (`selection.reserved_slots` in `config/model.yaml`). Cap-skipped items are not stored.
 
 **Batched classification.** Gemini structured JSON in batches of `batch_size` (5). Soft per-model budgets in `model_daily_limits`; hard stop is Google’s free-tier PerDay error. Mid-run quota leaves remaining selected items as `pending_scoring`; pipeline may switch once to `fallback_model`.
 
@@ -140,11 +150,11 @@ flowchart LR
 
 The Streamlit app emulates a JFrog-like dark aesthetic (navy `#070B19`, green `#40BE46`, Open Sans via theme/CSS). It is **not** an official JFrog component library. Streamlit is pinned at `streamlit==1.39.0` because custom tab/button CSS is fragile across releases.
 
-Navigation uses a horizontal radio (not `st.tabs`) so Ask follow-ups and Run Now stay on the active section after rerun.
+Navigation uses a horizontal radio (not `st.tabs`) so Ask follow-ups and weight/feedback saves stay on the active section after rerun.
 
 ### Daily Digest
 
-Sorted news cards with filters, weight sliders, feedback, and **Run Now**.
+Sorted news cards with filters, weight sliders, and 👍/👎 feedback. Ingestion is **not** started from this tab — use GitHub Actions or the CLI (see [Trigger collection manually](#trigger-collection-manually)).
 The **News date** filter uses the calendar day the system **ingested** the item (`ingested_at` → Asia/Jerusalem); cards still show the article’s **published** date (Israel local). Default is Israel “today”, or the latest day that has items.
 **Minimum relevance** (default 2.5) hides lower scored items; **Show unscored** reveals `pending_scoring` / fallback rows (shown as “Not scored”). Weight sliders re-rank from stored dimensions without new LLM calls; **Save weights** persists shared overrides to the DB.
 
@@ -178,7 +188,7 @@ Curated capability matrix from `config/comparison.yaml`. Every cell is a sourced
 
 ### Pipeline runs
 
-History of cron and manual runs (Israel timestamps), with per-source warnings for the selected run. Useful to show automated background execution next to **Run Now**.
+History of cron, workflow_dispatch, and CLI runs (Israel timestamps), with per-source warnings for the selected run. Use this tab to confirm background ingestion after a scheduled or manual workflow.
 
 > 📸 SCREENSHOT_TODO: docs/screenshots/07-pipeline-runs.png - Pipeline run history
 <!-- ![Pipeline runs](docs/screenshots/07-pipeline-runs.png) -->
@@ -198,7 +208,8 @@ One-line summaries — full rationale in [DECISIONS.md](DECISIONS.md):
 - **Gemini models in YAML** (`pipeline_model`, `fallback_model`, `ask_model`) so model ids swap without code changes — [DECISIONS.md](DECISIONS.md#2026-10-02-model-ids-in-config-pipeline-fallback-ask)
 - **Weights computed in code**, dimension scores stored, so sliders / Save weights need no LLM re-query — [DECISIONS.md](DECISIONS.md#2026-10-02-scoring-dimensions-and-default-weights)
 - **Turso for shared demo DB**, local SQLite otherwise; Postgres noted as production choice — [DECISIONS.md](DECISIONS.md#2026-10-02-database-turso-for-shared-demo-postgres-for-real-production)
-- **No seed database** — empty state + Run Now; demo relies on live/cron data or Turso — [DECISIONS.md](DECISIONS.md#2026-10-03-removing-the-seed-database)
+- **No seed database** — empty state points to the daily workflow / Pipeline runs; demo relies on live/cron data or Turso — [DECISIONS.md](DECISIONS.md#2026-10-03-removing-the-seed-database)
+- **Dashboard does not run ingestion** — collection is scheduled/manual workflows or CLI only, so UI clicks cannot burn model quota — [DECISIONS.md](DECISIONS.md#2026-10-05-dashboard-does-not-run-ingestion)
 - **48h freshness window** to survive date-only midnight stamps and one missed cron — [DECISIONS.md](DECISIONS.md#2026-10-03-48h-window-instead-of-24h)
 - **Strict keyword gate** for industry/community; official/emerging pass through — [DECISIONS.md](DECISIONS.md#2026-10-03-per-source-relevance-gate-off-for-official-strict-for-industrycommunity)
 - **Batched classify + per-model soft budgets** against Gemini free-tier PerDay limits — [DECISIONS.md](DECISIONS.md#2026-10-03-batched-classification-and-per-model-quota-budgeting)
@@ -219,7 +230,7 @@ One-line summaries — full rationale in [DECISIONS.md](DECISIONS.md):
 - Batched Gemini classification with structured dimensions; weighted total in code
 - Soft per-model daily budgets, fallback model switch, `pending_scoring`, end-of-run auto-rescore, nightly `retry_pending.yml`
 - SQLite locally or optional shared Turso
-- Streamlit UI: Daily Digest (filters, weights, feedback, Run Now), Ask the Digest, Comparison, Pipeline runs
+- Streamlit UI: Daily Digest (filters, weights, feedback), Ask the Digest, Comparison, Pipeline runs (display only — no live ingest from the UI)
 - Feedback table (item id, original score, 👍/👎, optional rationale, timestamp) + Save weights to DB
 - GitHub Actions daily ingest (04:17 UTC) and pending rescore (10:37 UTC)
 - Unit + offline pipeline integration tests
@@ -240,7 +251,7 @@ One-line summaries — full rationale in [DECISIONS.md](DECISIONS.md):
 
 | Pitfall | What we saw | Mitigation |
 |---------|-------------|------------|
-| Gemini free-tier **daily quota is per model** | `PerDay` errors stop generate; Ask / Run Now / cron share the same key | Soft `llm_usage` + `model_daily_limits` per model id; **batched** classify (`batch_size: 5`); optional `fallback_model` switch once; remaining selected items → `pending_scoring`; end-of-run auto-rescore (`rescore_fallback_*`); nightly `retry_pending.yml` at 10:37 UTC |
+| Gemini free-tier **daily quota is per model** | `PerDay` errors stop generate; Ask / cron / CLI share the same key | Soft `llm_usage` + `model_daily_limits` per model id; **batched** classify (`batch_size: 5`); optional `fallback_model` switch once; remaining selected items → `pending_scoring`; end-of-run auto-rescore (`rescore_fallback_*`); nightly `retry_pending.yml` at 10:37 UTC; dashboard never starts ingest |
 | **GitHub scheduled workflow delay** | Cron at 04:17 / 10:37 UTC often started **4–7 hours late** in practice (e.g. 06:00 schedule firing ~13:00 UTC) | Document as platform limitation; production would use a **dedicated scheduler** (e.g. Google Cloud Scheduler, AWS EventBridge, or a Kubernetes CronJob) with a small worker that triggers the same pipeline entrypoint |
 | Feeds that block or fail | JFrog blog empty **HTTP 202**; IR/CISA **403**; hnrss.org **502/timeouts on every run** since 2026-10-03; The Register bot-challenge HTML | Browser UA only for `jfrog_blog`; disable with dated YAML notes; **all five `hn_*` feeds disabled 2026-10-05**; `required: false` soft-fail for community |
 | Date-only timestamps | Midnight UTC stamps look “old” vs a morning run | **48h** `window_hours`; UI filter by ingest day (Asia/Jerusalem) |
@@ -255,7 +266,7 @@ One-line summaries — full rationale in [DECISIONS.md](DECISIONS.md):
 - Secrets stay in `.env` locally and in GitHub Actions repository secrets (`GEMINI_API_KEY`, `TURSO_*`); `.env.example` ships placeholders; `.gitignore` blocks `.env`.
 - Untrusted article/RSS text is placed inside `<<<UNTRUSTED_CONTENT>>>` … `<<<END_UNTRUSTED_CONTENT>>>` delimiters with an instruction to ignore embedded instructions — **best-effort** prompt hygiene, not a sandbox guarantee.
 - Dynamic fields rendered in the UI are HTML-escaped (`html.escape` in `src/ui/components.py`).
-- Cost guardrails: `max_items_per_run`, `ui_run_now_limit`, soft `model_daily_limits`, request timeouts, excerpt length, rate-limit intervals, Ask follow-up cap.
+- Cost guardrails: `max_items_per_run`, soft `model_daily_limits`, request timeouts, excerpt length, rate-limit intervals, Ask follow-up cap; ingestion only from workflows/CLI (not the dashboard).
 - In production, dependency scanning and package policy would use **JFrog Xray / Curation**.
 
 ---

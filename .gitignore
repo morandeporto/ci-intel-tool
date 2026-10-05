@@ -61,7 +61,7 @@ local_settings.py
 db.sqlite3
 db.sqlite3-journal
 
-# Local runtime DB (no committed seed - empty state + Run Now)
+# Local runtime DB (no committed seed - empty state points to daily workflow)
 data/ci_intel.db
 data/ci_intel.db-journal
 data/seed.db
