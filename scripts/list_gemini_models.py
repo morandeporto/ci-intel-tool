@@ -37,7 +37,8 @@ def main() -> int:
     genai.configure(api_key=key)
     flash_lite: list[str] = []
     all_ids: list[str] = []
-    for model in genai.list_models():
+    timeout_s = float(cfg.get("request_timeout_seconds", 60))
+    for model in genai.list_models(request_options={"timeout": timeout_s}):
         name = getattr(model, "name", None) or ""
         # API returns "models/<id>", normalize to bare id for config.
         model_id = name.split("/", 1)[-1] if name else ""
