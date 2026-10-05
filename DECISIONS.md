@@ -4,7 +4,40 @@ A running record of architectural decisions made during the project, newest firs
 
 ---
 
+## [2026-10-05] Ask Digest: conversation-stable citations and one Sources list
+
+**Selected Option:** A news item gets its `[n]` the first time it is retrieved in a
+conversation and keeps it for every follow-up (registry in Streamlit session state;
+**New chat** resets it). Citations that were not in the current turn's context are
+stripped. One **Sources** list renders once, under the whole conversation, with only
+the cited news items (by number) and matrix claims (`[M#]`). Source links must be
+`http`/`https` and must have been in the prompt context; links with any other scheme
+inside the rendered conversation text are reduced to plain text.
+
+**Alternatives Considered:**
+- A Sources list per assistant turn (previous entry; rejected: numbering restarted
+  each turn, so `[1]` could mean different articles in one thread, and repeated
+  lists made the conversation long)
+- Listing every retrieved item (rejected: shows sources the answer never used)
+
+**Rationale:** Trust and clarity - one number means one article for the whole thread,
+and every listed source was actually cited.
+
+**In short:**
+> "Each article keeps the same citation number for the whole conversation, and there
+> is a single Sources list at the bottom with only what the answers cited. Links are
+> allowlisted to URLs that were in the prompt and to http or https."
+
+**JFrog Product Connection (If applicable):**
+Not applicable.
+
+---
+
 ## [2026-10-05] Ask Digest: per-turn sources, [M#] matrix cites, neutral tone
+
+**Superseded in part by:** [Ask Digest: conversation-stable citations and one Sources list](#2026-10-05-ask-digest-conversation-stable-citations-and-one-sources-list)
+(the per-turn Sources list in point 1; the `[M#]` ids, URL allowlist and neutral tone
+in points 2 and 3 are current).
 
 **Selected Option:** (1) Store retrieved news on each assistant turn and render a
 turn-local **Sources** list so `[1]`/`[n]` match only that answer. (2) Assign stable
@@ -31,8 +64,9 @@ injection, analyst tone that does not invent product cells.
 > from labelled JFrog implications without marketing fluff."
 
 **JFrog Product Connection (If applicable):**
-Same provenance discipline as Xray/Curation: only trust artifacts (URLs/claims)
-that entered through a known, curated path.
+Source provenance: only URLs that entered through the retrieval context or the
+curated matrix can become links - the same "know where it came from before trusting
+it" principle JFrog applies to artifacts. No JFrog product is integrated here.
 
 ---
 
@@ -275,9 +309,7 @@ CI/supply-chain language so industry/community items can pass when on-topic.
 > pure noise - without touching score weights."
 
 **JFrog Product Connection (If applicable):**
-Curation-style policy allow-lists before expensive analysis - cheap deterministic
-filters first (same pattern as scanning policies that gate what reaches deep
-inspection). Genuine parallel: Xray/Curation apply policy before costly work.
+Not applicable.
 
 ---
 
@@ -335,9 +367,9 @@ document adapters for blocked regulation sources without pretending they are fee
 > invented RSS rows."
 
 **JFrog Product Connection (If applicable):**
-Provenance of sources: official vendor feeds are higher-trust than community noise;
-labeling kind/gate mirrors treating upstream signal provenance carefully (same
-spirit as Xray/Curation trust tiers for packages).
+Source provenance: every item keeps its feed id and `kind`, so official vendor facts
+are never confused with industry or community signal. Same principle as tracking
+where an artifact came from; no JFrog product is integrated here.
 
 ---
 
@@ -415,8 +447,7 @@ on-topic for noisy outlets, trust official/emerging volume to be self-selecting.
 > for audit but never hit Gemini or the digest."
 
 **JFrog Product Connection (If applicable):**
-Similar to Curation/Xray policy gates before expensive deep scans - cheap
-deterministic filters first, then heavier analysis.
+Not applicable.
 
 ---
 
@@ -471,9 +502,7 @@ that still lands on the same normalize → classify → score pipeline.
 > into the same normalize step, not invent feed URLs."
 
 **JFrog Product Connection (If applicable):**
-Xray/Curation care about security advisory provenance; extra verified security feeds
-fit the same "trusted upstream signal" mindset. Pricing/jobs adapters would be treated
-like untrusted metadata - isolate, validate, then promote.
+Not applicable.
 
 ---
 
@@ -509,8 +538,7 @@ cells, follow-up continuity without runaway spend. Session transcript only.
 > nothing is stored as model memory."
 
 **JFrog Product Connection (If applicable):**
-A production assistant would gate tools via a **JFrog MCP Registry** before agents
-can call them; comparison claims stay curated (sourced) metadata, not free generation.
+Not applicable.
 
 ---
 
@@ -548,7 +576,7 @@ not a laptop SQLite file and not Turso as the long-term system of record.
 
 **JFrog Product Connection (If applicable):**
 Production app images and dependencies would be scanned with **Xray / Curation** before
-promotion; connection secrets belong in a secret manager, not in git.
+promotion.
 
 ---
 
@@ -575,8 +603,7 @@ Both are pulled the same way (httpx + feedparser) after `verify_feeds.py` checks
 > non-vendor signal."
 
 **JFrog Product Connection (If applicable):**
-Provenance: separating trusted official feeds from noisy community signals matches
-treating upstream package provenance carefully in Xray/Curation.
+Not applicable.
 
 ---
 
@@ -608,8 +635,9 @@ Not applicable.
 
 ## [2026-10-02] Persistable weight overrides in app_settings
 
-**Selected Option:** UI **Save weights** writes normalized weights JSON to
-`app_settings` so all reviewers share the same ranking when using Turso.
+**Selected Option:** UI **Save weights** validates that the sliders sum to 1.00 and
+writes the weights JSON to `app_settings`, so all reviewers share the same ranking
+when using Turso.
 
 **Alternatives Considered:** Session-only sliders (rejected: lost on refresh), write only
 to `weights.yaml` (rejected: not shared across machines).
@@ -618,8 +646,9 @@ to `weights.yaml` (rejected: not shared across machines).
 adjusts weights from user corrections can build on the same stored overrides.
 
 **In short:**
-> "Sliders re-rank instantly from stored dimensions. Save writes the weights into the
-> shared database so every reviewer sees the same ordering."
+> "Saving new weights re-ranks the digest instantly from stored dimensions, with no
+> model call, and writes them into the shared database so every reviewer sees the
+> same ordering."
 
 **JFrog Product Connection (If applicable):**
 Not applicable.
@@ -722,8 +751,9 @@ YAML with mandatory source links is the simplest honest approach at this scale.
 > competitive view."
 
 **JFrog Product Connection (If applicable):**
-Provenance of claims mirrors supply-chain provenance: trust comes from attested
-sources, not from an opaque model answer.
+Source provenance: each matrix claim carries its official source URL and quote, so
+trust comes from the cited page rather than from a model answer. No JFrog product is
+integrated here.
 
 ---
 
@@ -767,7 +797,7 @@ similarity as the primary ranker (overkill at current volume).
 
 **Rationale:** Transparency + cost - operators (and a future feedback loop that
 adjusts weights from user corrections) can retune ranking without re-calling Gemini.
-UI sliders normalize to sum 1.0.
+The UI only enables Save when the sliders sum to 1.00.
 
 **In short:**
 > "The model answers five narrow questions. Python applies configurable weights.
@@ -775,9 +805,7 @@ UI sliders normalize to sum 1.0.
 > thumbs without burning tokens."
 
 **JFrog Product Connection (If applicable):**
-Multi-dimension scoring is analogous to Xray **contextual analysis**: severity
-alone is incomplete — context (reachability, usage, business impact) changes
-priority. Our dims play a similar role for news ranking.
+Not applicable.
 
 ---
 
