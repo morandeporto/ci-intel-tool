@@ -6,19 +6,6 @@ Config-driven, cost-aware, and demoable with local SQLite or an optional shared 
 
 Developed with AI-assisted tooling (Cursor); design decisions are documented in [DECISIONS.md](DECISIONS.md).
 
-> 📸 SCREENSHOT_TODO: docs/screenshots/01-daily-digest.png - Daily Digest, full page (hero)
-<!-- ![Daily Digest](docs/screenshots/01-daily-digest.png) -->
-
-> 🎬 VIDEO_TODO: Add demo walkthrough URL here (e.g. Loom / unlisted YouTube)
-
-<!--
-SCREENSHOT / VIDEO REPLACEMENT STEPS:
-1. Capture each PNG into docs/screenshots/ using the filename in the SCREENSHOT_TODO line.
-2. Uncomment the HTML-commented image markdown line under that placeholder (remove <!-- and -->).
-3. Delete the SCREENSHOT_TODO blockquote line above it.
-4. For VIDEO_TODO: replace the placeholder line with a real markdown link, then delete the VIDEO_TODO marker.
--->
-
 ---
 
 ## Quick start
@@ -84,8 +71,7 @@ pytest -q
 
 ### How to access the UI
 
-- **Local:** after `streamlit run src/ui/app.py`, open [http://localhost:8501](http://localhost:8501) (Streamlit’s default).
-- **Hosted (optional):** `HOSTED_URL_TODO` — paste a Streamlit Community Cloud / other hosted URL here when available.
+After `streamlit run src/ui/app.py`, open [http://localhost:8501](http://localhost:8501) (Streamlit’s default).
 
 ---
 
@@ -146,6 +132,9 @@ flowchart LR
 
 **GitHub Actions.** `daily_ingest.yml` (04:17 UTC + manual) runs ingest against Turso. `retry_pending.yml` (10:37 UTC) runs `--rescore-fallbacks`. Both share concurrency group `ci-intel-pipeline`. Scheduled times are best-effort on GitHub (see [Challenges and pitfalls](#challenges-and-pitfalls)).
 
+![GitHub Actions runs](docs/screenshots/07-github-actions.png)
+*GitHub Actions history for both workflows, with scheduled and manual runs.*
+
 ---
 
 ## UI tour
@@ -158,19 +147,23 @@ Navigation uses a horizontal radio (not `st.tabs`) so Ask follow-ups and weight/
 
 Sorted news cards with filters, weight sliders, and 👍/👎 feedback. Ingestion is **not** started from this tab — use GitHub Actions or the CLI (see [Trigger collection manually](#trigger-collection-manually)).
 The **News date** filter uses the calendar day the system **ingested** the item (`ingested_at` → Asia/Jerusalem); cards still show the article’s **published** date (Israel local). Default is Israel “today”, or the latest day that has items.
-**Minimum relevance** (default 2.5) hides lower scored items; **Show unscored** reveals `pending_scoring` / fallback rows (shown as “Not scored”). Weight sliders re-rank from stored dimensions without new LLM calls; **Save weights** persists shared overrides to the DB.
+**Minimum relevance** (default 2.5) hides lower scored items; **Show unscored** reveals `pending_scoring` / fallback rows (shown as “Not scored”). Weight sliders must sum to 1.00; **Save weights** re-ranks the list from stored dimensions without new LLM calls and persists the shared weights to the DB.
 
-> 📸 SCREENSHOT_TODO: docs/screenshots/01-daily-digest.png - Daily Digest, full page
-<!-- ![Daily Digest](docs/screenshots/01-daily-digest.png) -->
+![Weight tuning panel](docs/screenshots/01-digest-weights.png)
+*Weight tuning panel: five dimension sliders and the weight-sum check that enables Save.*
 
-> 📸 SCREENSHOT_TODO: docs/screenshots/02-weights-before.png - Weight sliders before re-ranking
-<!-- ![Weights before](docs/screenshots/02-weights-before.png) -->
+![Digest filters and KPI cards](docs/screenshots/02-digest-filters.png)
+*Filters (news date, item type, minimum relevance) and the KPI cards for the current selection.*
 
-> 📸 SCREENSHOT_TODO: docs/screenshots/03-weights-after.png - Digest re-ranked after moving a slider
-<!-- ![Weights after](docs/screenshots/03-weights-after.png) -->
+![News list with feedback](docs/screenshots/03-digest-news-list.png)
+*News list: score ring, badges, summary, JFrog implication, source link, dimension scores, and 👍/👎 feedback.*
 
-> 📸 SCREENSHOT_TODO: docs/screenshots/04-feedback.png - Thumbs feedback with optional rationale
-<!-- ![Feedback](docs/screenshots/04-feedback.png) -->
+<p>
+  <img src="docs/screenshots/10-reweight-before.png" alt="Digest before re-weighting" width="49%" />
+  <img src="docs/screenshots/11-reweight-after.png" alt="Digest after re-weighting" width="49%" />
+</p>
+
+*Saving new weights (JFrog relevance 0.39 → 0.08, Market visibility 0.15 → 0.50, Freshness 0.20 → 0.16) re-ranks the list instantly, without calling the model again: the top item changes from “SubQuery Ecosystem Compromise: Hidden Credential Theft and Backdoors” to “ReviewBench: An open benchmark for AI code review”. The item count also drops because Minimum relevance was raised from 0.50 to 2.50 between the two shots.*
 
 ### Ask the Digest
 
@@ -178,28 +171,33 @@ Keyword retrieval over stored digest rows (top 6 by token overlap) plus the cura
 The prompt instructs the model to answer **only** from retrieved news and matrix claims — a prompt rule, not a technical guarantee.
 Follow-ups live in Streamlit session state only (lost on refresh / **New chat**), max **2** follow-ups per thread.
 
-> 📸 SCREENSHOT_TODO: docs/screenshots/05-ask-the-digest.png - Ask the Digest conversation
-<!-- ![Ask the Digest](docs/screenshots/05-ask-the-digest.png) -->
+![Ask the Digest](docs/screenshots/04-ask-the-digest.png)
+*Ask the Digest: a question and a follow-up; each answer is split into “What happened” and “What it means for JFrog”, citing news as [n] and comparison-matrix claims as [M#].*
 
 ### Comparison
 
 Curated capability matrix from `config/comparison.yaml`. Every cell is a sourced claim (link + short quote) or **Unknown** — never generated from model memory. Analysts update the YAML when product pages change; the news pipeline does not rewrite it.
 
-> 📸 SCREENSHOT_TODO: docs/screenshots/06-comparison.png - Comparison matrix
-<!-- ![Comparison](docs/screenshots/06-comparison.png) -->
+![Comparison matrix](docs/screenshots/05-comparison.png)
+*Comparison matrix: each cell is a claim with a quote and source link, or Unknown.*
 
 ### Pipeline runs
 
 History of cron, workflow_dispatch, and CLI runs (Israel timestamps), with per-source warnings for the selected run. Use this tab to confirm background ingestion after a scheduled or manual workflow.
 
-> 📸 SCREENSHOT_TODO: docs/screenshots/07-pipeline-runs.png - Pipeline run history
-<!-- ![Pipeline runs](docs/screenshots/07-pipeline-runs.png) -->
+![Pipeline runs](docs/screenshots/06-pipeline-runs.png)
+*Pipeline runs: status, counts and errors per run, plus per-source telemetry for the selected run.*
 
-> 📸 SCREENSHOT_TODO: docs/screenshots/08-github-actions.png - GitHub Actions workflow runs
-<!-- ![GitHub Actions](docs/screenshots/08-github-actions.png) -->
+### Mobile
 
-> 📸 SCREENSHOT_TODO: docs/screenshots/09-mobile.png - Optional mobile / narrow layout
-<!-- ![Mobile](docs/screenshots/09-mobile.png) -->
+On narrow screens the layout stacks: news cards and feedback buttons go full width, and the comparison matrix and run history switch from tables to cards.
+
+<p>
+  <img src="docs/screenshots/08-mobile-1.png" alt="Digest on mobile" width="49%" />
+  <img src="docs/screenshots/09-mobile-2.png" alt="Comparison on mobile" width="49%" />
+</p>
+
+*Daily Digest cards (left) and the comparison matrix as cards (right) on a phone-sized screen.*
 
 ---
 
@@ -265,11 +263,27 @@ One-line summaries — full rationale in [DECISIONS.md](DECISIONS.md):
 
 ## Security considerations
 
-- Secrets stay in `.env` locally and in GitHub Actions repository secrets (`GEMINI_API_KEY`, `TURSO_*`); `.env.example` ships placeholders; `.gitignore` blocks `.env`.
-- Untrusted article/RSS text is placed inside `<<<UNTRUSTED_CONTENT>>>` … `<<<END_UNTRUSTED_CONTENT>>>` delimiters with an instruction to ignore embedded instructions — **best-effort** prompt hygiene, not a sandbox guarantee.
-- Dynamic fields rendered in the UI are HTML-escaped (`html.escape` in `src/ui/components.py`).
-- Cost guardrails: `max_items_per_run`, soft `model_daily_limits`, request timeouts, excerpt length, rate-limit intervals, Ask follow-up cap; ingestion only from workflows/CLI (not the dashboard).
-- In production, dependency scanning and package policy would use **JFrog Xray / Curation**.
+**In place**
+
+- **Secrets:** `.env` locally (gitignored) and GitHub Actions repository secrets (`GEMINI_API_KEY`, `TURSO_*`). `.env.example` has placeholders only. A scan of the full git history on 2026-10-05 found no real keys or tokens.
+- **Redaction:** error text that is stored on pipeline runs or shown in the UI goes through `sanitize_error_text` (Gemini keys, bearer/JWT tokens, `api_key=` / `auth_token=` values). Uncaught exception messages stay in the server console (`client.showErrorDetails = false`).
+- **SQL:** every query uses `?` parameters; Ask questions, feedback rationales and feed fields are never concatenated into SQL.
+- **Output escaping:** HTML cards escape all dynamic text (`html.escape`). Links from feeds, the comparison matrix and Ask sources render only for `http`/`https`; links with other schemes in Ask conversation text are reduced to plain text.
+- **Prompt injection:** feed text sits inside `<<<UNTRUSTED_CONTENT>>>` blocks (Ask: `<<<RETRIEVED_NEWS (UNTRUSTED DATA)>>>`) with an instruction to ignore embedded instructions; delimiter-like sequences in feed text are shortened so they cannot close the block.
+- **Timeouts:** feed fetches 15 s, Gemini calls 60 s, workflow jobs 30 min.
+- **Quota and cost:** at most 20 items per run, 5 per classify call, soft per-model daily limits, a persisted block after a hard daily-quota error, Ask questions capped at 2000 characters and 2 follow-ups, feedback rationale capped at 2000 characters.
+- **Dashboard does not run ingestion:** collection runs only from the workflows or the CLI.
+- **Workflows:** `permissions: contents: read`, actions pinned to major version tags, secrets passed only via `secrets.*` and never echoed.
+- **Dependency scan** (`jf audit`, 2026-10-05): no High or Critical finding that contextual analysis marks applicable. Pillow 10.4.0 (pulled in by Streamlit 1.39.0, which requires `pillow<11`) has 1 Critical and 13 High CVEs, all marked Not Applicable; the fix needs Pillow 12.x and therefore a large Streamlit upgrade, deferred because the custom CSS is pinned to 1.39. Remaining Medium findings: Streamlit 1.39.0 (fixed in 1.53.1 / 1.54.0), Pillow, and pytest 8.3.3 (test-only, fixed in 9.0.3). python-dotenv was upgraded to 1.2.2 to fix CVE-2026-28684. The scan also flags the virtualenv's own `pip` / `setuptools`; run `pip install --upgrade pip setuptools` in your venv.
+
+**Known limitations**
+
+- The dashboard has no authentication: run it locally or behind SSO.
+- The Turso token the dashboard uses can write (feedback and weights), so anyone who can reach a hosted dashboard can change shared data.
+- Prompt-injection protection is best effort, not a sandbox.
+- The Turso client uses libsql's default connection settings; the 30-minute job timeout is the backstop for a hung remote.
+
+**Production next steps:** SSO in front of the dashboard; separate least-privilege tokens per environment (read-only for viewers) with rotation; JFrog Xray / Curation scanning dependencies in CI.
 
 ---
 
@@ -311,7 +325,7 @@ Live process exit codes: **1** only when `status=failed`. `degraded` exits **0**
 | `config/weights.yaml` | Default dimension weights (must sum to 1.0) and rubric descriptions |
 | `config/model.yaml` | Gemini model ids, quotas, batch size, freshness window, selection caps, timeouts |
 | `config/comparison.yaml` | Curated JFrog vs competitor capability matrix (sourced claims) |
-| `.streamlit/config.toml` | Streamlit dark theme tokens |
+| `.streamlit/config.toml` | Streamlit dark theme tokens; hides exception details in the browser |
 | `.env` / `.env.example` | `GEMINI_API_KEY`, optional Turso credentials, optional `CI_INTEL_DB` |
 
 ### Project layout
@@ -319,7 +333,7 @@ Live process exit codes: **1** only when `status=failed`. `degraded` exits **0**
 ```
 config/                 YAML: competitors, sources, relevance, weights, model, comparison
 data/                   schema.sql; ci_intel.db created at runtime (gitignored)
-docs/screenshots/       UI screenshot placeholders for the README
+docs/screenshots/       Screenshots used in this README
 scripts/                verify_feeds.py, diagnose_fetch.py, backfill_report.py,
                         list_gemini_models.py, compare_models.py
 src/config_loader.py    Load and validate YAML configs
@@ -333,7 +347,6 @@ src/ui/                 Streamlit app, components, styles.css, assets/
 tests/                  Unit tests + offline pipeline integration tests
 .github/workflows/      daily_ingest.yml (04:17 UTC), retry_pending.yml (10:37 UTC)
 DECISIONS.md            Architectural decision log
-PRESENTATION_PREP.md    Local presentation notes (gitignored)
 ```
 
 ### Tests
@@ -350,4 +363,4 @@ Covers weighted scoring, dedupe, freshness, relevance gate, selection, config lo
 
 ## Stage 2 (DevOps)
 
-`STAGE2_FORK_TODO` — link to the Stage 2 fork of `jfrog_task` (Xray scan, vulnerability write-up, Docker → Artifactory, Build Info) will go here.
+Stage 2 (Xray scan, vulnerability write-up, Docker image to Artifactory, Build Info) lives in the fork: [https://github.com/morandeporto/jfrog_task](https://github.com/morandeporto/jfrog_task).
