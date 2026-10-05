@@ -223,7 +223,8 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 
-# Local interview notes (not part of the submitted deliverable)
+# Local agent / interview notes (not part of the submitted deliverable)
+.cursorrules
 PRESENTATION_PREP.md
 
 # One-off DB cleanup backups (never commit production dumps)

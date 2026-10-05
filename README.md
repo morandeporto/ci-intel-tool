@@ -4,6 +4,8 @@ A working competitive-intelligence system for JFrog: daily RSS ingestion, Gemini
 Built as a Stage 1 take-home for the GenAI & Competitive Intelligence Engineer role — real pipeline and UI, not a mockup.
 Config-driven, cost-aware, and demoable with local SQLite or an optional shared Turso database.
 
+Developed with AI-assisted tooling (Cursor); design decisions are documented in [DECISIONS.md](DECISIONS.md).
+
 > 📸 SCREENSHOT_TODO: docs/screenshots/01-daily-digest.png - Daily Digest, full page (hero)
 <!-- ![Daily Digest](docs/screenshots/01-daily-digest.png) -->
 
