@@ -1,4 +1,8 @@
-"""Pipeline run trigger persistence and Turso/libSQL column alias handling."""
+"""Pipeline run trigger persistence and Turso/libSQL column alias handling.
+
+``ui`` remains a known trigger label so historical Run Now rows still display;
+nothing in the UI creates new ``ui`` runs anymore.
+"""
 
 from __future__ import annotations
 
@@ -6,11 +10,16 @@ from pathlib import Path
 
 from src.db.connection import get_connection, init_db
 from src.db.repository import Repository, _normalize_run_row
+from src.pipeline.run_daily import RUN_TRIGGER_CHOICES
 
 
 def test_normalize_run_row_maps_libsql_trigger_alias() -> None:
     row = _normalize_run_row({"id": "x", "TRIGGER": "cron", "status": "success"})
     assert row["trigger"] == "cron"
+
+
+def test_ui_trigger_kept_for_historical_rows() -> None:
+    assert "ui" in RUN_TRIGGER_CHOICES
 
 
 def test_list_runs_exposes_trigger(tmp_path: Path) -> None:
