@@ -61,12 +61,6 @@ PARENT_STYLES = """
 #ci-toast.ci-show { opacity: 1; transform: translate(-50%, 0); }
 #ci-toast.ci-err { border-color: rgba(231,76,60,.7); }
 @keyframes ci-spin { to { transform: rotate(360deg); } }
-button.ci-btn-run-now {
-  background: linear-gradient(90deg, #1E4F7A 0%, #2F6F9E 100%) !important;
-  background-color: #21558A !important;
-  border: none !important;
-  color: #fff !important;
-}
 button.ci-btn-down-on {
   background: #E53935 !important;
   background-color: #E53935 !important;
@@ -246,10 +240,8 @@ def boot_host_chrome(*, flash: dict | None = None) -> None:
 
   doc.querySelectorAll('button').forEach(function (b) {{
     var t = (b.textContent || '').replace(/\\s+/g, ' ').trim();
-    b.classList.remove('ci-btn-run-now', 'ci-btn-down', 'ci-btn-down-on');
-    if (t === 'Run Now') {{
-      b.classList.add('ci-btn-run-now');
-    }} else if (t === '👎' || t.indexOf('👎') === 0) {{
+    b.classList.remove('ci-btn-down', 'ci-btn-down-on');
+    if (t === '👎' || t.indexOf('👎') === 0) {{
       var on = b.getAttribute('kind') === 'primary'
         || (b.getAttribute('data-testid') || '') === 'baseButton-primary';
       ['background', 'background-color', 'background-image', 'border', 'color', 'box-shadow']

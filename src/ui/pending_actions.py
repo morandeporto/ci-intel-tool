@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from pathlib import Path
 from typing import Any
 
 import streamlit as st
@@ -15,7 +13,6 @@ from src.services.feedback import record_feedback
 from src.services.weights import save_weights
 from src.ui.db_session import mark_db_dirty, invalidate_db_cache
 from src.ui.host_chrome import (
-    boot_host_chrome,
     clear_busy_toast,
     schedule_continue_click,
     show_busy_toast,
@@ -30,7 +27,6 @@ ACTION_LABELS = {
     "save_weights": "Saving weights…",
     "feedback_up": "Saving feedback…",
     "feedback_down": "Saving feedback…",
-    "run_now": "Running ingestion…",
     "ask": "Asking the digest…",
 }
 
@@ -54,9 +50,6 @@ def _execute(
     name: str,
     payload: dict[str, Any],
     repo: Repository,
-    db_path: Path | None,
-    *,
-    run_pipeline: Callable[[Path | None], tuple[bool, str]],
 ) -> tuple[bool, str]:
     if name == "save_weights":
         saved = save_weights(repo, {k: float(v) for k, v in payload["weights"].items()})
@@ -82,8 +75,6 @@ def _execute(
         )
         st.session_state["pending_down_id"] = None
         return True, "Feedback saved (👎)"
-    if name == "run_now":
-        return run_pipeline(db_path)
     if name == "ask":
         history_raw = payload.get("history") or []
         history = [
@@ -116,12 +107,7 @@ def _execute(
     return False, f"Unknown action: {name}"
 
 
-def handle_pending_action(
-    repo: Repository,
-    db_path: Path | None,
-    *,
-    run_pipeline: Callable[[Path | None], tuple[bool, str]],
-) -> None:
+def handle_pending_action(repo: Repository) -> None:
     pending = st.session_state.get(PENDING_KEY)
     busy_label = st.session_state.get(BUSY_KEY)
     if not pending or not busy_label:
@@ -135,8 +121,6 @@ def handle_pending_action(
                 str(pending.get("name") or ""),
                 pending.get("payload") or {},
                 repo,
-                db_path,
-                run_pipeline=run_pipeline,
             )
         except ClassifyError as exc:
             st.session_state.pop("_ci_ask_result", None)

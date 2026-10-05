@@ -16,7 +16,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.db.connection import is_connection_error, turso_configured
+from src.db.connection import is_connection_error
 from src.db.models import DIMENSION_NAMES
 from src.db.repository import Repository
 from src.services.comparison import get_comparison_matrix
@@ -59,7 +59,7 @@ DIM_LABELS = {
 }
 WEIGHT_SUM_TOLERANCE = 0.01
 
-# st.tabs resets to the first tab on every rerun (breaks Ask / Run Now UX).
+# st.tabs resets to the first tab on every rerun (breaks Ask follow-up UX).
 # A keyed radio keeps the active section in session_state across pending actions.
 MAIN_TAB_KEY = "_ci_main_tab"
 MAIN_TABS = (
@@ -80,38 +80,6 @@ def _weight_sum_status(total: float) -> tuple[str, str]:
     if abs(total - 1.0) <= WEIGHT_SUM_TOLERANCE:
         return ("ok", f"Sum {total:.2f} / 1.00 - ready to save.")
     return ("warn", f"Sum {total:.2f} / 1.00 - need {1.0 - total:.2f} more.")
-
-
-def _try_run_pipeline(db_path: Path | None) -> tuple[bool, str]:
-    try:
-        from src.config_loader import DEFAULT_DB_PATH, load_model_config
-        from src.pipeline.run_daily import run_daily
-    except ImportError:
-        return False, "Pipeline module is not available."
-    try:
-        target = None if turso_configured() else DEFAULT_DB_PATH
-        # Cap below cron max_items_per_run so a UI click cannot exhaust free-tier RPD.
-        ui_limit = max(1, int(load_model_config().get("ui_run_now_limit", 10)))
-        result = run_daily(trigger="ui", db_path=target, limit=ui_limit)
-        mark_db_dirty()
-        parts = [
-            f"status={result.status}",
-            f"fetched={result.items_fetched}",
-            f"new={result.items_new}",
-            f"scored={result.items_scored}",
-        ]
-        if result.message:
-            parts.append(result.message)
-        msg = "Pipeline " + ", ".join(parts)
-        if result.status == "failed" or (
-            result.items_scored == 0 and result.items_new > 0
-        ):
-            return False, msg
-        if result.items_scored == 0 and result.items_new == 0:
-            return True, msg + " (nothing new to add)"
-        return True, msg
-    except Exception as exc:  # noqa: BLE001
-        return False, f"Pipeline failed: {exc}"
 
 
 @st.fragment
@@ -459,7 +427,7 @@ def _render_digest_controls(total: int) -> tuple[int, int]:
     return start, end
 
 
-def _render_digest_tab(repo: Repository, db_path: Path | None) -> None:
+def _render_digest_tab(repo: Repository) -> None:
     if "applied_weights" not in st.session_state:
         st.session_state.applied_weights = dict(get_effective_weights(repo))
     if "digest_sort_label" not in st.session_state:
@@ -467,18 +435,7 @@ def _render_digest_tab(repo: Repository, db_path: Path | None) -> None:
 
     _weight_editor_fragment(repo)
 
-    dig_l, dig_r = st.columns([4, 1])
-    with dig_l:
-        st.markdown('<div class="ci-section-title">Daily digest</div>', unsafe_allow_html=True)
-    with dig_r:
-        st.markdown('<span class="ci-run-now-slot">run</span>', unsafe_allow_html=True)
-        if st.button(
-            "Run Now",
-            type="secondary",
-            use_container_width=True,
-            key="run_now_digest",
-        ):
-            queue_action("run_now")
+    st.markdown('<div class="ci-section-title">Daily digest</div>', unsafe_allow_html=True)
 
     sort_by = _digest_sort_key()
     try:
@@ -491,7 +448,7 @@ def _render_digest_tab(repo: Repository, db_path: Path | None) -> None:
         if not is_connection_error(exc):
             raise
         mark_db_dirty()
-        repo, db_path = get_repository()
+        repo, _db_path = get_repository()
         all_items = list_digest(
             repo,
             weight_overrides=st.session_state.applied_weights,
@@ -499,9 +456,10 @@ def _render_digest_tab(repo: Repository, db_path: Path | None) -> None:
         )
 
     if not all_items:
-        st.info("No news items yet. Use **Run Now** to ingest live data.")
-        if st.button("Run Now", type="primary", key="run_now_empty"):
-            queue_action("run_now")
+        st.info(
+            "No items yet. News is collected automatically by the daily workflow; "
+            "see the Pipeline runs tab."
+        )
         return
 
     items, _date_note = _render_news_date_filter(all_items)
@@ -771,12 +729,12 @@ def main() -> None:
     )
 
     try:
-        repo, db_path = get_repository()
+        repo, _db_path = get_repository()
     except Exception as exc:  # noqa: BLE001
         st.error(f"Could not open database: {exc}")
         st.stop()
 
-    handle_pending_action(repo, db_path, run_pipeline=_try_run_pipeline)
+    handle_pending_action(repo)
 
     if MAIN_TAB_KEY not in st.session_state:
         st.session_state[MAIN_TAB_KEY] = MAIN_TABS[0]
@@ -793,7 +751,7 @@ def main() -> None:
     )
 
     if active_tab == "Daily Digest":
-        _render_digest_tab(repo, db_path)
+        _render_digest_tab(repo)
     elif active_tab == "Ask the Digest":
         _render_ask_tab(repo)
     elif active_tab == "Comparison":

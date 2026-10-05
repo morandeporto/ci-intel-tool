@@ -165,38 +165,12 @@ div[data-testid="stButton"] > button:hover {
 }
 
 /* Invisible column markers for button theming (:has selectors) */
-.ci-run-now-slot,
 .ci-fb-down-slot {
   display: none !important;
   height: 0 !important;
   margin: 0 !important;
   padding: 0 !important;
   overflow: hidden !important;
-}
-
-/*
-  Run Now is type=secondary (not primary) so Streamlit's green primary theme
-  cannot paint it. Style the whole digest-header column that carries the marker.
-*/
-div[data-testid="column"]:has(.ci-run-now-slot) div.stButton > button,
-div[data-testid="column"]:has(.ci-run-now-slot) div[data-testid="stButton"] > button,
-div[data-testid="stHorizontalBlock"]:has(.ci-run-now-slot) > div[data-testid="column"]:last-child button,
-div[data-testid="column"]:has(.ci-run-now-slot) button[kind="secondary"],
-div[data-testid="column"]:has(.ci-run-now-slot) button[data-testid="baseButton-secondary"] {
-  background: linear-gradient(90deg, #1E4F7A 0%, #2F6F9E 100%) !important;
-  background-color: #21558A !important;
-  background-image: linear-gradient(90deg, #1E4F7A 0%, #2F6F9E 100%) !important;
-  border: none !important;
-  color: #fff !important;
-  box-shadow: 0 0 14px rgba(33, 85, 138, 0.4) !important;
-}
-div[data-testid="column"]:has(.ci-run-now-slot) div.stButton > button:hover,
-div[data-testid="column"]:has(.ci-run-now-slot) div[data-testid="stButton"] > button:hover,
-div[data-testid="stHorizontalBlock"]:has(.ci-run-now-slot) > div[data-testid="column"]:last-child button:hover {
-  filter: brightness(1.1);
-  box-shadow: 0 0 18px rgba(47, 111, 158, 0.55) !important;
-  border-color: transparent !important;
-  color: #fff !important;
 }
 
 /* 👎 red only when selected (type=primary), idle secondary stays outline */
