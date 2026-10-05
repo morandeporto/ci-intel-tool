@@ -27,7 +27,7 @@ from src.config_loader import (
     load_weights,
 )
 from src.db.connection import get_connection, init_db, turso_configured
-from src.db.models import DimensionScores, NewsItem
+from src.db.models import DimensionScores, NewsItem, RunTrigger
 from src.db.repository import Repository
 from src.ingest.normalize import NormalizedEntry
 from src.ingest.rss_fetcher import SourceFetchStat, fetch_and_normalize
@@ -51,8 +51,17 @@ from src.process.selection import select_for_llm
 
 logger = logging.getLogger(__name__)
 
-RunTrigger = Literal["manual", "cron"]
 RunStatus = Literal["success", "partial", "failed", "degraded"]
+
+RUN_TRIGGER_CHOICES: tuple[RunTrigger, ...] = (
+    "cron",
+    "manual",
+    "retry",
+    "ui",
+    "cli",
+    "backfill",
+    "seed",
+)
 
 
 def _utc_now() -> str:
@@ -1152,9 +1161,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--trigger",
-        choices=("manual", "cron"),
-        default="manual",
-        help="How this run was started (stored on pipeline_runs).",
+        choices=RUN_TRIGGER_CHOICES,
+        default=None,
+        help=(
+            "How this run was started (stored on pipeline_runs). "
+            "Defaults to cli locally; use cron/manual/retry from GitHub Actions."
+        ),
     )
     parser.add_argument(
         "--db",
@@ -1209,14 +1221,23 @@ def exit_code_for_live_run(result: PipelineResult) -> int:
     return 0
 
 
+def _resolve_cli_trigger(args: argparse.Namespace) -> RunTrigger:
+    if args.trigger is not None:
+        return args.trigger
+    if args.backfill_days is not None:
+        return "backfill"
+    return "cli"
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_arg_parser().parse_args(argv)
+    trigger = _resolve_cli_trigger(args)
     if args.rescore_fallbacks:
         result = run_rescore_only(
             db_path=args.db,
             limit=args.limit,
             use_fallback_model=args.use_fallback_model,
-            trigger=args.trigger,
+            trigger=trigger,
         )
         print(
             f"status={result.status} rescored_ok={result.items_rescored_ok} "
@@ -1237,7 +1258,7 @@ def main(argv: list[str] | None = None) -> int:
             return 2
         window_hours = int(args.backfill_days) * 24
     result = run_daily(
-        trigger=args.trigger,
+        trigger=trigger,
         db_path=args.db,
         limit=args.limit,
         dry_run=args.dry_run,

@@ -92,7 +92,7 @@ def _try_run_pipeline(db_path: Path | None) -> tuple[bool, str]:
         target = None if turso_configured() else DEFAULT_DB_PATH
         # Cap below cron max_items_per_run so a UI click cannot exhaust free-tier RPD.
         ui_limit = max(1, int(load_model_config().get("ui_run_now_limit", 10)))
-        result = run_daily(trigger="manual", db_path=target, limit=ui_limit)
+        result = run_daily(trigger="ui", db_path=target, limit=ui_limit)
         mark_db_dirty()
         parts = [
             f"status={result.status}",

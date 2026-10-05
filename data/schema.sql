@@ -6,7 +6,7 @@ CREATE TABLE IF NOT EXISTS pipeline_runs (
     started_at TEXT NOT NULL,
     finished_at TEXT,
     status TEXT NOT NULL,              -- running | success | partial | degraded | failed
-    trigger TEXT NOT NULL,             -- cron | manual | seed
+    trigger TEXT NOT NULL,             -- cron | manual | retry | ui | cli | backfill | seed
     items_fetched INTEGER NOT NULL DEFAULT 0,
     items_new INTEGER NOT NULL DEFAULT 0,
     items_scored INTEGER NOT NULL DEFAULT 0,

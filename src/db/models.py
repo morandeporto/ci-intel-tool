@@ -16,7 +16,9 @@ DIMENSION_NAMES = (
 
 Vote = Literal["up", "down"]
 RunStatus = Literal["running", "success", "partial", "failed", "degraded"]
-RunTrigger = Literal["cron", "manual", "seed"]
+RunTrigger = Literal[
+    "cron", "manual", "retry", "ui", "cli", "backfill", "seed"
+]
 
 
 @dataclass(frozen=True)

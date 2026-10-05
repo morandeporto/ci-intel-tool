@@ -66,7 +66,13 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
           TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
-        run: python -m src.pipeline.run_daily --trigger cron
+        run: |
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            TRIGGER=cron
+          else
+            TRIGGER=manual
+          fi
+          python -m src.pipeline.run_daily --trigger "$TRIGGER"
 
       - name: Upload local SQLite artifact (debug only)
         if: always()

@@ -62,6 +62,15 @@ def _row_as_dict(cursor: Any, row: Any) -> dict[str, Any] | None:
     return dict(zip(cols, row))
 
 
+def _normalize_run_row(row: dict[str, Any]) -> dict[str, Any]:
+    """Map libSQL reserved-word column aliases to a stable ``trigger`` key."""
+    if row.get("trigger") in (None, ""):
+        alt = row.get("run_trigger") or row.get("TRIGGER")
+        if alt not in (None, ""):
+            row = {**row, "trigger": alt}
+    return row
+
+
 def _scalar(row: Any, key: str = "c", index: int = 0) -> Any:
     if row is None:
         return None
@@ -128,7 +137,8 @@ class Repository:
     def list_runs(self, limit: int = 20) -> list[dict[str, Any]]:
         cur = self.conn.execute(
             """
-            SELECT id, started_at, finished_at, status, trigger,
+            SELECT id, started_at, finished_at, status,
+                   trigger AS run_trigger,
                    items_fetched, items_new, items_scored,
                    items_classified_ok, items_fallback, retries_used, error_message
             FROM pipeline_runs
@@ -137,12 +147,13 @@ class Repository:
             """,
             (limit,),
         )
-        return _rows_as_dicts(cur)
+        return [_normalize_run_row(r) for r in _rows_as_dicts(cur)]
 
     def get_latest_run(self) -> dict[str, Any] | None:
         cur = self.conn.execute(
             """
-            SELECT id, started_at, finished_at, status, trigger,
+            SELECT id, started_at, finished_at, status,
+                   trigger AS run_trigger,
                    items_fetched, items_new, items_scored,
                    items_classified_ok, items_fallback, retries_used, error_message
             FROM pipeline_runs
@@ -150,7 +161,8 @@ class Repository:
             LIMIT 1
             """
         )
-        return _row_as_dict(cur, cur.fetchone())
+        row = _row_as_dict(cur, cur.fetchone())
+        return _normalize_run_row(row) if row else None
 
     def save_source_run_stats(self, rows: list[dict[str, Any]]) -> None:
         """Persist per-source telemetry for one pipeline run."""

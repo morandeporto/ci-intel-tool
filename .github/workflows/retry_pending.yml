@@ -76,4 +76,10 @@ jobs:
           TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
         # Python exits 0 when quota stops the pass (items stay pending for next night).
         # Hard failure (e.g. unexpected crash after Turso ping) exits non-zero.
-        run: python -m src.pipeline.run_daily --rescore-fallbacks --trigger cron
+        run: |
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            TRIGGER=retry
+          else
+            TRIGGER=manual
+          fi
+          python -m src.pipeline.run_daily --rescore-fallbacks --trigger "$TRIGGER"
