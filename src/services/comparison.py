@@ -2,10 +2,47 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Any
 
 from src.config_loader import load_comparison, load_competitors
+
+# Known product/capability acronyms kept upper case when labels are formatted.
+_ACRONYM_MAP = {
+    "aspom": "ASPM",  # common typo → correct acronym
+    "aspm": "ASPM",
+    "sca": "SCA",
+    "sbom": "SBOM",
+    "sast": "SAST",
+    "dast": "DAST",
+    "iac": "IaC",
+    "ci/cd": "CI/CD",
+    "cicd": "CI/CD",
+    "ml": "ML",
+    "ai": "AI",
+    "oci": "OCI",
+}
+
+_TOKEN_SPLIT_RE = re.compile(r"(\s+|/)")
+
+
+def format_capability_label(label: str) -> str:
+    """Format a capability label while keeping known acronyms upper case.
+
+    Fixes typos like ``Aspom`` → ``ASPM`` and preserves ``SCA``, ``CI/CD``, etc.
+    """
+    text = (label or "").strip()
+    if not text:
+        return text
+    parts: list[str] = []
+    for part in _TOKEN_SPLIT_RE.split(text):
+        if not part or part.isspace() or part == "/":
+            parts.append(part)
+            continue
+        mapped = _ACRONYM_MAP.get(part.lower())
+        parts.append(mapped if mapped is not None else part)
+    return "".join(parts)
 
 
 @dataclass(frozen=True)
@@ -92,7 +129,9 @@ def get_comparison_matrix(
         rows.append(
             ComparisonRow(
                 capability_id=cap.get("id", ""),
-                capability_label=cap.get("label", cap.get("id", "")),
+                capability_label=format_capability_label(
+                    str(cap.get("label") or cap.get("id") or "")
+                ),
                 claims=claims,
             )
         )

@@ -164,7 +164,7 @@ capabilities:
         quote: "You can analyze Docker images in continuous integration pipelines as you build them using a GitHub action or the Docker Scout CLI plugin."
 
   - id: security_scanning
-    label: Security Scanning / Aspom / Curation
+    label: Security Scanning / ASPM / Curation
     companies:
       jfrog:
         claim: "Xray + Curation for malicious package blocking and contextual analysis."
