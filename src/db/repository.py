@@ -174,6 +174,17 @@ class Repository:
                 run_id, source_id, http_status, fetched, in_window, new,
                 passed_gate, selected, classified, error, warning, duration_ms
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(run_id, source_id) DO UPDATE SET
+                http_status = excluded.http_status,
+                fetched = excluded.fetched,
+                in_window = excluded.in_window,
+                new = excluded.new,
+                passed_gate = excluded.passed_gate,
+                selected = excluded.selected,
+                classified = excluded.classified,
+                error = excluded.error,
+                warning = excluded.warning,
+                duration_ms = excluded.duration_ms
             """,
             [
                 (

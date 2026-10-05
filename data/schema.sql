@@ -100,6 +100,8 @@ CREATE TABLE IF NOT EXISTS source_run_stats (
 );
 
 CREATE INDEX IF NOT EXISTS idx_source_run_stats_run ON source_run_stats(run_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_source_run_stats_run_source
+    ON source_run_stats(run_id, source_id);
 
 -- Soft per-model daily call counters (pipeline | ask | rescore | compare). Hard stop is API PerDay.
 CREATE TABLE IF NOT EXISTS llm_usage (

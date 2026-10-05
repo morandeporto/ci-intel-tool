@@ -227,7 +227,7 @@ def _build_source_run_stat_rows(
             }
         )
     # Sources that only appear in new_entries (should be rare).
-    for sid in sorted(set(new_c) | set(selected_c) - seen):
+    for sid in sorted((set(new_c) | set(selected_c)) - seen):
         rows.append(
             {
                 "run_id": run_id,

@@ -160,6 +160,20 @@ def migrate_schema(conn: Any) -> list[str]:
     if _table_exists(conn, "source_run_stats"):
         if _add_column_if_missing(conn, "source_run_stats", "warning", "TEXT"):
             changes.append("source_run_stats.warning")
+        cur = conn.execute(
+            """
+            SELECT 1 FROM sqlite_master
+            WHERE type = 'index' AND name = 'idx_source_run_stats_run_source'
+            """
+        )
+        if cur.fetchone() is None:
+            conn.execute(
+                """
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_source_run_stats_run_source
+                ON source_run_stats(run_id, source_id)
+                """
+            )
+            changes.append("source_run_stats unique (run_id, source_id)")
 
     try:
         conn.commit()
