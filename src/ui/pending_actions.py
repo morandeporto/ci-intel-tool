@@ -91,12 +91,22 @@ def _execute(
             {"title": c.title, "url": c.url, "competitor": c.competitor}
             for c in (result.citations or [])
         ]
+        turn_matrix = [
+            {
+                "mid": m.mid,
+                "label": f"{m.company_label} — {m.capability_label}",
+                "claim": m.claim,
+                "url": m.source_url,
+            }
+            for m in (result.matrix_citations or [])
+        ]
         thread = prior + [
             {"role": "user", "content": question},
             {
                 "role": "assistant",
                 "content": result.answer,
                 "citations": turn_citations,
+                "matrix_citations": turn_matrix,
                 "used_comparison": bool(result.used_comparison),
             },
         ]
@@ -104,6 +114,7 @@ def _execute(
         st.session_state["_ci_ask_result"] = {
             "answer": result.answer,
             "citations": turn_citations,
+            "matrix_citations": turn_matrix,
             "used_comparison": bool(result.used_comparison),
             "model_id": result.model_id,
         }

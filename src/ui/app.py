@@ -579,7 +579,18 @@ def _render_ask_tab(repo: Repository) -> None:
                             f"[{i}] [{c.get('title')}]({c.get('url')}) "
                             f"- {c.get('competitor')}"
                         )
-                if turn.get("used_comparison"):
+                matrix_cites = turn.get("matrix_citations") or []
+                if matrix_cites:
+                    st.markdown("**Comparison matrix**")
+                    for m in matrix_cites:
+                        mid = m.get("mid") or "?"
+                        label = m.get("label") or m.get("claim") or mid
+                        url = m.get("url") or ""
+                        if url:
+                            st.markdown(f"[{mid}] [{label}]({url})")
+                        else:
+                            st.markdown(f"[{mid}] {label}")
+                elif turn.get("used_comparison"):
                     st.caption(
                         "Also used curated Comparison matrix claims "
                         "(see Comparison tab)."

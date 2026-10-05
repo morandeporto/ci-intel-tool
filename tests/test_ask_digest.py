@@ -13,10 +13,13 @@ from src.services.ask_digest import (
     MAX_FOLLOW_UPS,
     MAX_USER_TURNS,
     ChatTurn,
+    MatrixClaimRef,
     RetrievedItem,
     ask_digest,
     build_ask_prompt,
+    filter_context_urls,
     format_comparison_context,
+    resolve_matrix_citations,
     retrieve_relevant_items,
 )
 from src.process.llm_classify import ClassifyError
@@ -119,10 +122,14 @@ def test_retrieve_ranks_keyword_overlap(tmp_path):
 
 
 def test_format_comparison_includes_sourced_claims():
-    text = format_comparison_context()
+    text, refs = format_comparison_context()
     assert "Capability:" in text
     assert "source=" in text or "Unknown" in text
     assert "jfrog" in text.lower() or "JFrog" in text
+    assert refs
+    assert refs[0].mid == "M1"
+    assert f"[{refs[0].mid}]" in text
+    assert refs[0].source_url.startswith("http")
 
 
 def test_build_ask_prompt_includes_matrix_and_news_and_history():
@@ -152,6 +159,54 @@ def test_build_ask_prompt_includes_matrix_and_news_and_history():
     assert "Artifactory" in prompt
     assert "PRIOR CONVERSATION" in prompt
     assert "What did Snyk announce?" in prompt
+    assert "[M1]" in prompt or "product-capability claims, cite as [M1]" in prompt
+
+
+def test_filter_context_urls_drops_unknown_and_javascript(caplog):
+    allowed = {"https://jfrog.com/xray/", "https://example.com/news"}
+    # Valid context URL kept.
+    assert filter_context_urls(["https://jfrog.com/xray/"], allowed) == [
+        "https://jfrog.com/xray/"
+    ]
+    # Unknown URL dropped.
+    with caplog.at_level("WARNING"):
+        assert filter_context_urls(["https://evil.example/phish"], allowed) == []
+    assert any("not in Ask context" in r.message for r in caplog.records)
+    caplog.clear()
+    # javascript: dropped.
+    with caplog.at_level("WARNING"):
+        assert (
+            filter_context_urls(["javascript:alert(1)"], allowed) == []
+        )
+    assert any("non-http" in r.message for r in caplog.records)
+
+
+def test_resolve_matrix_citations_renders_valid_only():
+    refs = [
+        MatrixClaimRef(
+            mid="M1",
+            company_label="JFrog",
+            capability_label="Security Scanning",
+            claim="Xray + Curation",
+            source_url="https://jfrog.com/xray/",
+        ),
+        MatrixClaimRef(
+            mid="M2",
+            company_label="Snyk",
+            capability_label="Security Scanning",
+            claim="Snyk Code",
+            source_url="https://snyk.io/product/",
+        ),
+    ]
+    allowed = {"https://jfrog.com/xray/", "https://snyk.io/product/"}
+    answer = "JFrog offers Xray [M1]. Ignore invented [M99]."
+    resolved = resolve_matrix_citations(answer, refs, allowed)
+    assert [r.mid for r in resolved] == ["M1"]
+    assert resolved[0].source_url == "https://jfrog.com/xray/"
+
+    # Even a known mid is dropped if its URL is not in the allowlist.
+    tight = {"https://example.com/news-only"}
+    assert resolve_matrix_citations("See [M1]", refs, tight) == []
 
 
 def test_ask_digest_rejects_oversized_thread(tmp_path):
