@@ -307,6 +307,23 @@ def is_safe_http_url(url: str) -> bool:
     return True
 
 
+_MD_LINK_RE = re.compile(r"\[([^\]]*)\]\(\s*<?([^)\s>]*)>?[^)]*\)")
+_MD_AUTOLINK_RE = re.compile(r"<([a-z][a-z0-9+.-]*:[^>\s]*)>", re.I)
+
+
+def neutralize_unsafe_links(text: str) -> str:
+    """Replace markdown links / autolinks whose target is not http(s) with plain text."""
+
+    def _link_repl(match: re.Match[str]) -> str:
+        return match.group(0) if is_safe_http_url(match.group(2)) else match.group(1)
+
+    def _autolink_repl(match: re.Match[str]) -> str:
+        return match.group(0) if is_safe_http_url(match.group(1)) else match.group(1)
+
+    cleaned = _MD_LINK_RE.sub(_link_repl, text or "")
+    return _MD_AUTOLINK_RE.sub(_autolink_repl, cleaned)
+
+
 def filter_context_urls(candidate_urls: list[str], allowed: set[str]) -> list[str]:
     """Keep URLs that are http(s) and present in the provided context; drop + log others."""
     kept: list[str] = []

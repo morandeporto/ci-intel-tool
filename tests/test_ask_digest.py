@@ -22,6 +22,8 @@ from src.services.ask_digest import (
     extract_cited_news_nums,
     filter_context_urls,
     format_comparison_context,
+    is_safe_http_url,
+    neutralize_unsafe_links,
     resolve_matrix_citations,
     retrieve_relevant_items,
     sanitize_answer_citations,
@@ -198,6 +200,46 @@ def test_filter_context_urls_drops_unknown_and_javascript(caplog):
     with caplog.at_level("WARNING"):
         assert filter_context_urls(["javascript:alert(1)"], allowed) == []
     assert any("non-http" in r.message for r in caplog.records)
+
+
+@pytest.mark.parametrize(
+    "url,expected",
+    [
+        ("https://jfrog.com/xray/", True),
+        ("http://example.com/a", True),
+        ("javascript:alert(1)", False),
+        ("JavaScript:alert(1)", False),
+        ("data:text/html;base64,PHNjcmlwdD4=", False),
+        ("vbscript:msgbox(1)", False),
+        ("//evil.example/x", False),
+        ("https://", False),
+        ("", False),
+    ],
+)
+def test_is_safe_http_url_scheme_check(url, expected):
+    assert is_safe_http_url(url) is expected
+
+
+def test_neutralize_unsafe_links_keeps_http_and_strips_other_schemes():
+    text = (
+        "See [docs](https://jfrog.com/xray/) and [click](javascript:alert(1)) "
+        "or <javascript:alert(2)> and [x](data:text/html,hi)."
+    )
+    cleaned = neutralize_unsafe_links(text)
+    assert "[docs](https://jfrog.com/xray/)" in cleaned
+    assert "](javascript:" not in cleaned
+    assert "<javascript:" not in cleaned
+    assert "](data:" not in cleaned
+    assert "click" in cleaned
+
+
+def test_news_card_drops_non_http_source_href():
+    from src.ui.components import render_news_card
+
+    card = render_news_card({"title": "t", "url": "javascript:alert(1)"})
+    assert "href=" not in card
+    safe = render_news_card({"title": "t", "url": "https://example.com/a"})
+    assert 'href="https://example.com/a"' in safe
 
 
 def test_resolve_matrix_citations_renders_valid_only():

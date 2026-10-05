@@ -564,6 +564,7 @@ def _render_ask_tab(repo: Repository) -> None:
         CitationRegistry,
         build_conversation_sources,
         format_comparison_context,
+        neutralize_unsafe_links,
     )
 
     st.markdown('<div class="ci-section-title">Ask the digest</div>', unsafe_allow_html=True)
@@ -582,7 +583,8 @@ def _render_ask_tab(repo: Repository) -> None:
         st.markdown("**Conversation**")
         for turn in thread:
             role = "You" if turn.get("role") == "user" else "Assistant"
-            st.markdown(f"**{role}:** {turn.get('content') or ''}")
+            content = neutralize_unsafe_links(str(turn.get("content") or ""))
+            st.markdown(f"**{role}:** {content}")
 
         # One Sources block under the whole conversation (cited ids only).
         answers = [
@@ -598,10 +600,12 @@ def _render_ask_tab(repo: Repository) -> None:
         if sources:
             st.markdown("**Sources**")
             for src in sources:
+                # Feed titles must not be able to open or close a markdown link.
+                label = src.label.replace("[", "\\[").replace("]", "\\]")
                 if src.url:
-                    st.markdown(f"[{src.key}] [{src.label}]({src.url})")
+                    st.markdown(f"[{src.key}] [{label}]({src.url})")
                 else:
-                    st.markdown(f"[{src.key}] {src.label}")
+                    st.markdown(f"[{src.key}] {label}")
 
         st.caption(
             f"Follow-ups used: {follow_ups_used}/{MAX_FOLLOW_UPS}. "
