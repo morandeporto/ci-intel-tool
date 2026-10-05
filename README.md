@@ -219,7 +219,7 @@ One-line summaries — full rationale in [DECISIONS.md](DECISIONS.md):
 - **Curated comparison YAML**, never LLM-authored product claims — [DECISIONS.md](DECISIONS.md#2026-10-02-comparison-matrix-as-curated-yaml-not-llm-generated)
 - **Feedback table + UI now**; automated weight learning is Future Work — [DECISIONS.md](DECISIONS.md#2026-10-02-feedback-table-built-now-learning-engine-is-future-work)
 
-**Presentation point:** operators can nudge ranking with weight sliders and record 👍/👎 plus a short rationale today. In the future, users will correct an item’s rating with a brief explanation, and an automated feedback loop will adjust weights (and potentially prompts) — the same idea as a lead-scoring feedback loop. Storage and UI are built; the learning engine is not.
+**Presentation point:** operators can nudge ranking with weight sliders and record 👍/👎 plus a short rationale today. In the future, users will correct an item’s rating with a brief explanation, and a feedback loop that adjusts weights from user corrections (and potentially prompts) will take over. Storage and UI are built; the learning engine is not.
 
 ---
 
@@ -333,7 +333,7 @@ src/ui/                 Streamlit app, components, styles.css, assets/
 tests/                  Unit tests + offline pipeline integration tests
 .github/workflows/      daily_ingest.yml (04:17 UTC), retry_pending.yml (10:37 UTC)
 DECISIONS.md            Architectural decision log
-PRESENTATION_PREP.md    Panel presentation script and Q&A
+PRESENTATION_PREP.md    Local presentation notes (gitignored)
 ```
 
 ### Tests
