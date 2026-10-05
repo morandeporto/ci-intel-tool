@@ -72,7 +72,15 @@ def test_enabled_sources_allow_null_competitor() -> None:
     assert by_id["reddit_devops"]["enabled"] is False
     assert by_id["hn_snyk"]["enabled"] is False
     assert by_id["chainguard_blog"]["enabled"] is True
-    assert by_id["hn_mcp_registry"]["enabled"] is True
+    assert by_id["hn_mcp_registry"]["enabled"] is False
+    for hn_id in (
+        "hn_supply_chain",
+        "hn_sbom",
+        "hn_artifactory",
+        "hn_jfrog",
+        "hn_mcp_registry",
+    ):
+        assert "Disabled 2026-10-05" in str(by_id[hn_id].get("note") or "")
 
 
 def test_source_competitor_tag_maps_null_to_industry() -> None:

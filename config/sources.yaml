@@ -362,11 +362,10 @@ sources:
     gate: "strict"
     type: rss
     url: https://hnrss.org/newest?q=supply+chain
-    enabled: true
+    enabled: false
     category: community
-    last_verified: "2026-10-03"
-    # Left enabled despite intermittent hnrss.org 502 (retry+backoff in fetcher).
-    note: "hnrss.org intermittent 502 (2026-10-03 re-verify still failed after 5xx retries)."
+    last_verified: "2026-10-05"
+    note: "Disabled 2026-10-05: hnrss.org returned 502 or timed out on every run since 2026-10-03."
 
   - id: hn_sbom
     competitor: null
@@ -375,10 +374,10 @@ sources:
     gate: "strict"
     type: rss
     url: https://hnrss.org/newest?q=SBOM
-    enabled: true
+    enabled: false
     category: community
-    last_verified: "2026-10-03"
-    note: "hnrss.org intermittent 502 (2026-10-03 re-verify still failed after 5xx retries)."
+    last_verified: "2026-10-05"
+    note: "Disabled 2026-10-05: hnrss.org returned 502 or timed out on every run since 2026-10-03."
 
   - id: hn_artifactory
     competitor: null
@@ -387,10 +386,10 @@ sources:
     gate: "strict"
     type: rss
     url: https://hnrss.org/newest?q=Artifactory
-    enabled: true
+    enabled: false
     category: community
-    last_verified: "2026-10-03"
-    note: "hnrss.org, 2026-10-03 re-verify OK after 5xx retries (1 in-window item)."
+    last_verified: "2026-10-05"
+    note: "Disabled 2026-10-05: hnrss.org returned 502 or timed out on every run since 2026-10-03."
 
   - id: hn_jfrog
     competitor: null
@@ -399,10 +398,10 @@ sources:
     gate: "strict"
     type: rss
     url: https://hnrss.org/newest?q=JFrog
-    enabled: true
+    enabled: false
     category: community
-    last_verified: "2026-10-03"
-    note: "hnrss.org intermittent 502 (2026-10-03 re-verify still failed after 5xx retries)."
+    last_verified: "2026-10-05"
+    note: "Disabled 2026-10-05: hnrss.org returned 502 or timed out on every run since 2026-10-03."
 
   - id: hn_mcp_registry
     competitor: null
@@ -411,10 +410,10 @@ sources:
     gate: "strict"
     type: rss
     url: https://hnrss.org/newest?q=%22MCP%20registry%22
-    enabled: true
+    enabled: false
     category: community
-    last_verified: "2026-10-03"
-    note: "hnrss.org MCP registry phrase, 2026-10-03 re-verify OK after 5xx retries."
+    last_verified: "2026-10-05"
+    note: "Disabled 2026-10-05: hnrss.org returned 502 or timed out on every run since 2026-10-03."
 
   - id: hn_snyk
     competitor: null
