@@ -569,16 +569,21 @@ def _render_ask_tab(repo: Repository) -> None:
         for turn in thread:
             role = "You" if turn.get("role") == "user" else "Assistant"
             st.markdown(f"**{role}:** {turn.get('content') or ''}")
-        result = st.session_state.get("_ci_ask_result") or {}
-        citations = result.get("citations") or []
-        if citations:
-            st.markdown("**News sources (latest turn)**")
-            for i, c in enumerate(citations, start=1):
-                st.markdown(
-                    f"[{i}] [{c.get('title')}]({c.get('url')}) - {c.get('competitor')}"
-                )
-        if result.get("used_comparison"):
-            st.caption("Also used curated Comparison matrix claims (see Comparison tab).")
+            # Per-turn Sources: numbers in this answer match only this list.
+            if turn.get("role") == "assistant":
+                citations = turn.get("citations") or []
+                if citations:
+                    st.markdown("**Sources**")
+                    for i, c in enumerate(citations, start=1):
+                        st.markdown(
+                            f"[{i}] [{c.get('title')}]({c.get('url')}) "
+                            f"- {c.get('competitor')}"
+                        )
+                if turn.get("used_comparison"):
+                    st.caption(
+                        "Also used curated Comparison matrix claims "
+                        "(see Comparison tab)."
+                    )
         st.caption(
             f"Follow-ups used: {follow_ups_used}/{MAX_FOLLOW_UPS}. "
             "Start a new chat to reset."

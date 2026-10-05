@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 
 from src.db.connection import get_connection, init_db
@@ -20,45 +22,94 @@ from src.services.ask_digest import (
 from src.process.llm_classify import ClassifyError
 
 
+def _seed_item(
+    repo: Repository,
+    *,
+    item_id: str,
+    title: str,
+    url: str,
+    competitor: str,
+    summary: str,
+    content_hash: str,
+) -> None:
+    repo.upsert_news_item(
+        NewsItem(
+            id=item_id,
+            title=title,
+            url=url,
+            source_id=f"{competitor}_blog",
+            competitor=competitor,
+            published_at="2026-10-01",
+            ingested_at="2026-10-01T00:00:00+00:00",
+            summary=summary,
+            category="product_release",
+            raw_excerpt=summary,
+            content_hash=content_hash,
+            relevance_score=4.0,
+            run_id=None,
+        )
+    )
+
+
+def _mock_gemini(monkeypatch: pytest.MonkeyPatch, answers: list[str]) -> list[str]:
+    """Install a fake google.generativeai that returns canned answers (no network)."""
+    queue = list(answers)
+    captured: list[str] = []
+
+    class _FakeModel:
+        def __init__(self, *_a, **_k) -> None:
+            pass
+
+        def generate_content(self, prompt, **_kwargs):  # noqa: ANN001
+            captured.append(str(prompt))
+            text = queue.pop(0) if queue else "empty"
+            return SimpleNamespace(text=text)
+
+    fake_genai = SimpleNamespace(
+        configure=lambda **_k: None,
+        GenerativeModel=_FakeModel,
+    )
+    fake_types = SimpleNamespace(
+        GenerationConfig=lambda **_k: None,
+        RequestOptions=lambda **_k: None,
+    )
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key-not-real")
+    monkeypatch.setitem(__import__("sys").modules, "google.generativeai", fake_genai)
+    monkeypatch.setitem(
+        __import__("sys").modules, "google.generativeai.types", fake_types
+    )
+    monkeypatch.setattr(
+        "src.services.ask_digest.wait_llm_interval", lambda: None
+    )
+    monkeypatch.setattr(
+        "src.services.ask_digest.configure_llm_interval", lambda *_a, **_k: None
+    )
+    return captured
+
+
 def test_retrieve_ranks_keyword_overlap(tmp_path):
     db = tmp_path / "t.db"
     init_db(db)
     conn = get_connection(db)
     repo = Repository(conn)
 
-    repo.upsert_news_item(
-        NewsItem(
-            id="1",
-            title="Snyk launches new SCA feature",
-            url="https://example.com/snyk",
-            source_id="snyk_blog",
-            competitor="snyk",
-            published_at="2026-10-01",
-            ingested_at="2026-10-01T00:00:00+00:00",
-            summary="Snyk improved open source scanning",
-            category="product_release",
-            raw_excerpt="Snyk SCA",
-            content_hash="a" * 64,
-            relevance_score=4.0,
-            run_id=None,
-        )
+    _seed_item(
+        repo,
+        item_id="1",
+        title="Snyk launches new SCA feature",
+        url="https://example.com/snyk",
+        competitor="snyk",
+        summary="Snyk improved open source scanning",
+        content_hash="a" * 64,
     )
-    repo.upsert_news_item(
-        NewsItem(
-            id="2",
-            title="Unrelated cooking recipes",
-            url="https://example.com/food",
-            source_id="x",
-            competitor="industry",
-            published_at="2026-10-01",
-            ingested_at="2026-10-01T00:00:00+00:00",
-            summary="pasta",
-            category="other",
-            raw_excerpt="pasta",
-            content_hash="b" * 64,
-            relevance_score=1.0,
-            run_id=None,
-        )
+    _seed_item(
+        repo,
+        item_id="2",
+        title="Unrelated cooking recipes",
+        url="https://example.com/food",
+        competitor="industry",
+        summary="pasta",
+        content_hash="b" * 64,
     )
 
     hits = retrieve_relevant_items(repo, "What did Snyk announce about SCA?", top_k=5)
@@ -115,4 +166,102 @@ def test_ask_digest_rejects_oversized_thread(tmp_path):
     assert MAX_FOLLOW_UPS == 2
     with pytest.raises(ClassifyError, match="follow-up"):
         ask_digest(repo, "one more?", history=history)
+    conn.close()
+
+
+def test_per_turn_sources_two_turns(tmp_path, monkeypatch):
+    """Each assistant turn keeps its own retrieved Sources; [1] is turn-local."""
+    db = tmp_path / "t.db"
+    init_db(db)
+    conn = get_connection(db)
+    repo = Repository(conn)
+
+    snyk_item = RetrievedItem(
+        id="snyk1",
+        title="Snyk launches SCA feature",
+        url="https://example.com/snyk-sca",
+        summary="Snyk improved SCA scanning",
+        competitor="snyk",
+        relevance_score=4.0,
+        score=3.0,
+    )
+    github_item = RetrievedItem(
+        id="gh1",
+        title="GitHub announces Copilot Workspace",
+        url="https://example.com/github-ai",
+        summary="GitHub Copilot Workspace for AI coding",
+        competitor="github",
+        relevance_score=4.0,
+        score=3.0,
+    )
+    # Deterministic per-turn retrieval (avoid prior-question token bleed).
+    retrieve_queue = [[snyk_item], [github_item]]
+
+    def _fake_retrieve(*_a, **_k):
+        return retrieve_queue.pop(0)
+
+    monkeypatch.setattr(
+        "src.services.ask_digest.retrieve_relevant_items", _fake_retrieve
+    )
+    _mock_gemini(
+        monkeypatch,
+        [
+            "Snyk announced an SCA update [1].",
+            "GitHub announced Copilot Workspace [1].",
+        ],
+    )
+    model_cfg = {
+        "ask_model": "gemini-3.1-flash-lite",
+        "model_daily_limits": {"gemini-3.1-flash-lite": 50},
+        "quota_day_timezone": "UTC",
+        "request_timeout_seconds": 60,
+    }
+
+    turn1 = ask_digest(
+        repo,
+        "What did Snyk announce about SCA?",
+        model_config=model_cfg,
+    )
+    assert [c.url for c in turn1.citations] == ["https://example.com/snyk-sca"]
+    assert "[1]" in turn1.answer
+
+    history = [
+        ChatTurn(role="user", content="What did Snyk announce about SCA?"),
+        ChatTurn(role="assistant", content=turn1.answer),
+    ]
+    turn2 = ask_digest(
+        repo,
+        "What did GitHub announce about AI?",
+        history=history,
+        model_config=model_cfg,
+    )
+    assert [c.url for c in turn2.citations] == ["https://example.com/github-ai"]
+    # Turn-local numbering: each turn's [1] maps to that turn's Sources only.
+    assert turn1.citations[0].url != turn2.citations[0].url
+
+    # Simulate UI thread storage: each assistant turn carries its own citations.
+    thread = [
+        {"role": "user", "content": "What did Snyk announce about SCA?"},
+        {
+            "role": "assistant",
+            "content": turn1.answer,
+            "citations": [
+                {"title": c.title, "url": c.url, "competitor": c.competitor}
+                for c in turn1.citations
+            ],
+        },
+        {"role": "user", "content": "What did GitHub announce about AI?"},
+        {
+            "role": "assistant",
+            "content": turn2.answer,
+            "citations": [
+                {"title": c.title, "url": c.url, "competitor": c.competitor}
+                for c in turn2.citations
+            ],
+        },
+    ]
+    assistant_turns = [t for t in thread if t["role"] == "assistant"]
+    assert assistant_turns[0]["citations"][0]["url"] == "https://example.com/snyk-sca"
+    assert assistant_turns[1]["citations"][0]["url"] == "https://example.com/github-ai"
+
     conn.close()

@@ -85,17 +85,25 @@ def _execute(
         question = str(payload["question"])
         result = ask_digest(repo, question, history=history)
         prior = list(st.session_state.get("_ci_ask_thread") or [])
+        # Citations live on the assistant turn so each answer's [1]/[n]
+        # matches the Sources list rendered directly under that turn.
+        turn_citations = [
+            {"title": c.title, "url": c.url, "competitor": c.competitor}
+            for c in (result.citations or [])
+        ]
         thread = prior + [
             {"role": "user", "content": question},
-            {"role": "assistant", "content": result.answer},
+            {
+                "role": "assistant",
+                "content": result.answer,
+                "citations": turn_citations,
+                "used_comparison": bool(result.used_comparison),
+            },
         ]
         st.session_state["_ci_ask_thread"] = thread
         st.session_state["_ci_ask_result"] = {
             "answer": result.answer,
-            "citations": [
-                {"title": c.title, "url": c.url, "competitor": c.competitor}
-                for c in (result.citations or [])
-            ],
+            "citations": turn_citations,
             "used_comparison": bool(result.used_comparison),
             "model_id": result.model_id,
         }
