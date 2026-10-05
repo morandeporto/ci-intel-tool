@@ -46,6 +46,7 @@ from src.process.llm_quota import (
 )
 from src.process.llm_rate_limit import configure_llm_interval
 from src.process.relevance_gate import evaluate_gate
+from src.process.retry import sanitize_error_text, summarize_model_failure_causes
 from src.process.scoring import weighted_score
 from src.process.selection import select_for_llm
 
@@ -847,7 +848,10 @@ def run_daily(
                         if used_fallback:
                             items_fallback += 1
                             if err:
-                                classify_errors.append(f"{entry.url}: {err}")
+                                classify_errors.append(
+                                    f"{entry.url}: "
+                                    f"{sanitize_error_text(err, max_len=300)}"
+                                )
                         else:
                             items_classified_ok += 1
                     except Exception as exc:  # noqa: BLE001
@@ -882,6 +886,15 @@ def run_daily(
             if daily_quota_hit:
                 status = "degraded"
             error_message = None
+            model_cause_summary = ""
+            if classify_errors and (items_fallback > 0 or items_failed > 0):
+                model_cause_summary = summarize_model_failure_causes(classify_errors)
+                if model_cause_summary:
+                    logger.warning(
+                        "Model classify failures for run %s: %s",
+                        run_id,
+                        model_cause_summary,
+                    )
             if daily_quota_hit:
                 error_message = (
                     f"{quota_reason}: {items_pending_scoring} item(s) left "
@@ -895,27 +908,33 @@ def run_daily(
                 error_message = (
                     f"Model call failed for every selected item "
                     f"({items_fallback}/{len(selected)} fallback)"
-                    + (
-                        f", first: {classify_errors[0][:160]}"
-                        if classify_errors
-                        else ""
-                    )
                 )
+                if model_cause_summary:
+                    error_message = f"{error_message}; {model_cause_summary}"
+                elif classify_errors:
+                    error_message = (
+                        f"{error_message}, first: "
+                        f"{sanitize_error_text(classify_errors[0], max_len=160)}"
+                    )
             elif items_failed and classify_errors:
                 error_message = (
                     f"{items_failed} item(s) failed to persist "
-                    f"(first: {classify_errors[0][:200]})"
+                    f"(first: {sanitize_error_text(classify_errors[0], max_len=200)})"
                 )
+                if model_cause_summary:
+                    error_message = f"{error_message}; {model_cause_summary}"
             elif items_fallback and items_scored > 0:
                 error_message = (
                     f"{items_fallback} item(s) saved with average fallback scores "
                     f"(Gemini unavailable)"
-                    + (
-                        f", first: {classify_errors[0][:120]}"
-                        if classify_errors
-                        else ""
-                    )
                 )
+                if model_cause_summary:
+                    error_message = f"{error_message}; {model_cause_summary}"
+                elif classify_errors:
+                    error_message = (
+                        f"{error_message}, first: "
+                        f"{sanitize_error_text(classify_errors[0], max_len=120)}"
+                    )
             elif len(new_entries) == 0 and items_scored == 0 and len(selected) == 0:
                 error_message = (
                     "No new articles to ingest - everything in the feed is already in the digest."

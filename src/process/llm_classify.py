@@ -31,7 +31,7 @@ from src.process.llm_quota import (
     resolve_pipeline_model,
 )
 from src.process.llm_rate_limit import wait_llm_interval
-from src.process.retry import call_with_retries, is_transient_error
+from src.process.retry import call_with_retries, format_model_failure_cause, is_transient_error
 
 # Load .env from project root (explicit path avoids fragile cwd / stdin lookups).
 # Secrets stay out of code, only the key name is referenced here.
@@ -791,20 +791,22 @@ def classify_entry_with_fallback(
         raise
     except ClassifyError as exc:
         retries_used = int(getattr(exc, "retries_used", 0) or 0)
+        cause = format_model_failure_cause(exc)
         return (
             fallback_classification(entry, source_kind=source_kind),
             True,
-            str(exc),
+            f"{cause}: {exc}",
             retries_used,
         )
     except Exception as exc:  # noqa: BLE001 - provider/network errors → fallback
         if is_daily_quota_error(exc):
             raise_if_daily_quota(exc, model_id=model_id_override)
         retries_used = int(getattr(exc, "retries_used", 0) or 0)
+        cause = format_model_failure_cause(exc)
         return (
             fallback_classification(entry, source_kind=source_kind),
             True,
-            str(exc),
+            f"{cause}: {exc}",
             retries_used,
         )
 
@@ -934,6 +936,7 @@ def classify_entries_batch_with_fallback(
     accepted: dict[str, ClassificationResult] = {}
     missing: list[str] = list(ids)
     batch_error: str | None = None
+    item_errors: dict[str, str] = {}
 
     try:
         accepted, missing, retries_used = classify_entries_batch(
@@ -948,14 +951,16 @@ def classify_entries_batch_with_fallback(
     except DailyQuotaError:
         raise
     except ClassifyError as exc:
-        batch_error = str(exc)
+        cause = format_model_failure_cause(exc)
+        batch_error = f"{cause}: {exc}"
         retries_total += int(getattr(exc, "retries_used", 0) or 0)
         accepted = {}
         missing = list(ids)
     except Exception as exc:  # noqa: BLE001
         if is_daily_quota_error(exc):
             raise_if_daily_quota(exc, model_id=model_id_override)
-        batch_error = str(exc)
+        cause = format_model_failure_cause(exc)
+        batch_error = f"{cause}: {exc}"
         retries_total += int(getattr(exc, "retries_used", 0) or 0)
         accepted = {}
         missing = list(ids)
@@ -975,9 +980,11 @@ def classify_entries_batch_with_fallback(
             retries_total += retries_used
         except DailyQuotaError:
             raise
-        except ClassifyError:
+        except ClassifyError as exc:
+            item_errors[mid] = f"{format_model_failure_cause(exc)}: {exc}"
             continue
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
+            item_errors[mid] = f"{format_model_failure_cause(exc)}: {exc}"
             continue
 
     outcomes: list[
@@ -988,7 +995,11 @@ def classify_entries_batch_with_fallback(
             outcomes.append((entry, accepted[item_id], False, None, retries_total))
             continue
         kind = kinds.get(entry.source_id) or kinds.get(item_id)
-        err = batch_error or "missing or invalid in batch response after individual retry"
+        err = (
+            item_errors.get(item_id)
+            or batch_error
+            or "Unknown:other: missing or invalid in batch response after individual retry"
+        )
         outcomes.append(
             (
                 entry,

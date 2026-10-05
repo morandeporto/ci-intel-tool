@@ -98,3 +98,38 @@ def test_call_with_retries_exhausts_on_persistent_503() -> None:
         )
     assert calls["n"] == 3
     assert getattr(ei.value, "retries_used") == 2
+
+
+def test_format_model_failure_cause_includes_type_and_status() -> None:
+    from src.process.retry import format_model_failure_cause, root_exception_type
+
+    root = RuntimeError("HTTP 503 overloaded")
+    wrapped = Exception(f"Gemini API call failed: {root}")
+    wrapped.__cause__ = root
+    assert format_model_failure_cause(wrapped) == "RuntimeError:503"
+    assert root_exception_type(wrapped) == "RuntimeError"
+    assert format_model_failure_cause(TimeoutError("deadline exceeded")) == (
+        "TimeoutError:timeout"
+    )
+
+
+def test_summarize_model_failure_causes_counts_by_status() -> None:
+    from src.process.retry import (
+        sanitize_error_text,
+        summarize_model_failure_causes,
+    )
+
+    summary = summarize_model_failure_causes(
+        [
+            "https://ex.com/a: ServiceUnavailable:503: overloaded",
+            "https://ex.com/b: ServiceUnavailable:503: overloaded",
+            "https://ex.com/c: TimeoutError:timeout: deadline exceeded",
+        ]
+    )
+    assert "last=ServiceUnavailable:503" in summary
+    assert "ServiceUnavailable:503×2" in summary
+    assert "TimeoutError:timeout×1" in summary
+    assert "api_key" not in sanitize_error_text("api_key=AIzaSyDummyKeyValue1234567890abcd")
+    assert "[redacted]" in sanitize_error_text(
+        "failed api_key=AIzaSyDummyKeyValue1234567890abcd"
+    )
