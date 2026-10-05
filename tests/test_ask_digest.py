@@ -13,14 +13,18 @@ from src.services.ask_digest import (
     MAX_FOLLOW_UPS,
     MAX_USER_TURNS,
     ChatTurn,
+    CitationRegistry,
     MatrixClaimRef,
     RetrievedItem,
     ask_digest,
     build_ask_prompt,
+    build_conversation_sources,
+    extract_cited_news_nums,
     filter_context_urls,
     format_comparison_context,
     resolve_matrix_citations,
     retrieve_relevant_items,
+    sanitize_answer_citations,
 )
 from src.process.llm_classify import ClassifyError
 
@@ -90,6 +94,15 @@ def _mock_gemini(monkeypatch: pytest.MonkeyPatch, answers: list[str]) -> list[st
     return captured
 
 
+def _model_cfg() -> dict:
+    return {
+        "ask_model": "gemini-3.1-flash-lite",
+        "model_daily_limits": {"gemini-3.1-flash-lite": 50},
+        "quota_day_timezone": "UTC",
+        "request_timeout_seconds": 60,
+    }
+
+
 def test_retrieve_ranks_keyword_overlap(tmp_path):
     db = tmp_path / "t.db"
     init_db(db)
@@ -134,14 +147,17 @@ def test_format_comparison_includes_sourced_claims():
 
 def test_build_ask_prompt_includes_matrix_and_news_and_history():
     items = [
-        RetrievedItem(
-            id="1",
-            title="Snyk news",
-            url="https://example.com/1",
-            summary="SCA update",
-            competitor="snyk",
-            relevance_score=4.0,
-            score=2.0,
+        (
+            3,
+            RetrievedItem(
+                id="1",
+                title="Snyk news",
+                url="https://example.com/1",
+                summary="SCA update",
+                competitor="snyk",
+                relevance_score=4.0,
+                score=2.0,
+            ),
         )
     ]
     prompt = build_ask_prompt(
@@ -150,11 +166,12 @@ def test_build_ask_prompt_includes_matrix_and_news_and_history():
         comparison_text="Capability: Artifact management\n  - JFrog: Artifactory | source=https://jfrog.com",
         history=[
             ChatTurn(role="user", content="What did Snyk announce?"),
-            ChatTurn(role="assistant", content="Snyk announced SCA updates [1]."),
+            ChatTurn(role="assistant", content="Snyk announced SCA updates [3]."),
         ],
     )
     assert "PRODUCT_COMPARISON" in prompt
     assert "RETRIEVED_NEWS" in prompt
+    assert "[3]" in prompt
     assert "Snyk news" in prompt
     assert "Artifactory" in prompt
     assert "PRIOR CONVERSATION" in prompt
@@ -164,24 +181,20 @@ def test_build_ask_prompt_includes_matrix_and_news_and_history():
     assert "**What it means for JFrog**" in prompt
     assert "no marketing" in prompt.lower() or "no superlatives" in prompt
     assert "Do NOT state product capabilities that are not present" in prompt
+    assert "stable across the conversation" in prompt
 
 
 def test_filter_context_urls_drops_unknown_and_javascript(caplog):
     allowed = {"https://jfrog.com/xray/", "https://example.com/news"}
-    # Valid context URL kept.
     assert filter_context_urls(["https://jfrog.com/xray/"], allowed) == [
         "https://jfrog.com/xray/"
     ]
-    # Unknown URL dropped.
     with caplog.at_level("WARNING"):
         assert filter_context_urls(["https://evil.example/phish"], allowed) == []
     assert any("not in Ask context" in r.message for r in caplog.records)
     caplog.clear()
-    # javascript: dropped.
     with caplog.at_level("WARNING"):
-        assert (
-            filter_context_urls(["javascript:alert(1)"], allowed) == []
-        )
+        assert filter_context_urls(["javascript:alert(1)"], allowed) == []
     assert any("non-http" in r.message for r in caplog.records)
 
 
@@ -208,9 +221,23 @@ def test_resolve_matrix_citations_renders_valid_only():
     assert [r.mid for r in resolved] == ["M1"]
     assert resolved[0].source_url == "https://jfrog.com/xray/"
 
-    # Even a known mid is dropped if its URL is not in the allowlist.
     tight = {"https://example.com/news-only"}
     assert resolve_matrix_citations("See [M1]", refs, tight) == []
+
+
+def test_sanitize_removes_out_of_context_ids(caplog):
+    with caplog.at_level("WARNING"):
+        cleaned = sanitize_answer_citations(
+            "Fact [1] and bad [9] plus [M2] and fake [M99].",
+            allowed_news_nums={1},
+            allowed_matrix_ids={"M2"},
+        )
+    assert "[1]" in cleaned
+    assert "[M2]" in cleaned
+    assert "[9]" not in cleaned
+    assert "[M99]" not in cleaned
+    assert any("Removed news citation [9]" in r.message for r in caplog.records)
+    assert any("Removed matrix citation [M99]" in r.message for r in caplog.records)
 
 
 def test_ask_digest_rejects_oversized_thread(tmp_path):
@@ -228,33 +255,105 @@ def test_ask_digest_rejects_oversized_thread(tmp_path):
     conn.close()
 
 
-def test_per_turn_sources_two_turns(tmp_path, monkeypatch):
-    """Each assistant turn keeps its own retrieved Sources; [1] is turn-local."""
+def test_conversation_sources_cited_only_stable_and_shared_url():
+    """Bottom Sources: stable ids, uncited absent, both Mids with same URL listed."""
+    registry = CitationRegistry()
+    shared = RetrievedItem(
+        id="shared1",
+        title="Shared news",
+        url="https://example.com/shared",
+        summary="s",
+        competitor="github",
+        relevance_score=4.0,
+        score=5.0,
+    )
+    uncited = RetrievedItem(
+        id="extra1",
+        title="Uncited",
+        url="https://example.com/extra",
+        summary="e",
+        competitor="snyk",
+        relevance_score=3.0,
+        score=2.0,
+    )
+    newer = RetrievedItem(
+        id="new2",
+        title="New item",
+        url="https://example.com/new2",
+        summary="n",
+        competitor="harness",
+        relevance_score=4.0,
+        score=4.0,
+    )
+    registry.assign([shared, uncited])
+    registry.assign([shared, newer])
+    assert registry.number_for("shared1") == 1
+    assert registry.number_for("extra1") == 2
+    assert registry.number_for("new2") == 3
+
+    matrix_refs = [
+        MatrixClaimRef(
+            mid="M1",
+            company_label="JFrog",
+            capability_label="Security",
+            claim="Xray",
+            source_url="https://shared.example/docs",
+        ),
+        MatrixClaimRef(
+            mid="M2",
+            company_label="Sonatype",
+            capability_label="Security",
+            claim="Firewall",
+            source_url="https://shared.example/docs",
+        ),
+    ]
+    answers = [
+        "Shared news [1] and matrix [M1].",
+        "Shared again [1], new [3], compare [M1] [M2].",
+    ]
+    sources = build_conversation_sources(answers, registry, matrix_refs)
+    keys = [s.key for s in sources]
+    # Every number in the text appears; uncited [2] absent.
+    assert "1" in keys
+    assert "3" in keys
+    assert "2" not in keys
+    assert extract_cited_news_nums("\n".join(answers)) == [1, 3]
+    # Both matrix ids listed even though they share one URL.
+    assert keys.count("M1") == 1
+    assert keys.count("M2") == 1
+    assert "M1" in keys and "M2" in keys
+    urls = {s.key: s.url for s in sources}
+    assert urls["M1"] == urls["M2"] == "https://shared.example/docs"
+    # Sorted: news by number, then matrix by M number.
+    assert keys == ["1", "3", "M1", "M2"]
+
+
+def test_stable_number_passed_to_model_across_turns(tmp_path, monkeypatch):
+    """Item retrieved in two turns keeps one number in prompts and answers."""
     db = tmp_path / "t.db"
     init_db(db)
     conn = get_connection(db)
     repo = Repository(conn)
 
-    snyk_item = RetrievedItem(
-        id="snyk1",
-        title="Snyk launches SCA feature",
-        url="https://example.com/snyk-sca",
-        summary="Snyk improved SCA scanning",
-        competitor="snyk",
-        relevance_score=4.0,
-        score=3.0,
-    )
-    github_item = RetrievedItem(
-        id="gh1",
-        title="GitHub announces Copilot Workspace",
-        url="https://example.com/github-ai",
-        summary="GitHub Copilot Workspace for AI coding",
+    shared = RetrievedItem(
+        id="shared1",
+        title="Shared news item",
+        url="https://example.com/shared",
+        summary="Appears in both turns",
         competitor="github",
         relevance_score=4.0,
-        score=3.0,
+        score=5.0,
     )
-    # Deterministic per-turn retrieval (avoid prior-question token bleed).
-    retrieve_queue = [[snyk_item], [github_item]]
+    newer = RetrievedItem(
+        id="new2",
+        title="Second-turn news",
+        url="https://example.com/new2",
+        summary="New in turn two",
+        competitor="harness",
+        relevance_score=4.0,
+        score=4.0,
+    )
+    retrieve_queue = [[shared], [shared, newer]]
 
     def _fake_retrieve(*_a, **_k):
         return retrieve_queue.pop(0)
@@ -262,65 +361,62 @@ def test_per_turn_sources_two_turns(tmp_path, monkeypatch):
     monkeypatch.setattr(
         "src.services.ask_digest.retrieve_relevant_items", _fake_retrieve
     )
-    _mock_gemini(
+    monkeypatch.setattr(
+        "src.services.ask_digest.format_comparison_context",
+        lambda _c=None: ("Capability: none", []),
+    )
+    prompts = _mock_gemini(
         monkeypatch,
         [
-            "Snyk announced an SCA update [1].",
-            "GitHub announced Copilot Workspace [1].",
+            "**What happened** Shared [1].\n**What it means for JFrog** Note.",
+            "**What happened** Shared [1] and new [2].\n**What it means for JFrog** Note.",
         ],
     )
-    model_cfg = {
-        "ask_model": "gemini-3.1-flash-lite",
-        "model_daily_limits": {"gemini-3.1-flash-lite": 50},
-        "quota_day_timezone": "UTC",
-        "request_timeout_seconds": 60,
-    }
-
+    registry = CitationRegistry()
     turn1 = ask_digest(
-        repo,
-        "What did Snyk announce about SCA?",
-        model_config=model_cfg,
+        repo, "q1", model_config=_model_cfg(), citation_registry=registry
     )
-    assert [c.url for c in turn1.citations] == ["https://example.com/snyk-sca"]
-    assert "[1]" in turn1.answer
-
-    history = [
-        ChatTurn(role="user", content="What did Snyk announce about SCA?"),
-        ChatTurn(role="assistant", content=turn1.answer),
-    ]
     turn2 = ask_digest(
         repo,
-        "What did GitHub announce about AI?",
-        history=history,
-        model_config=model_cfg,
+        "q2",
+        history=[
+            ChatTurn(role="user", content="q1"),
+            ChatTurn(role="assistant", content=turn1.answer),
+        ],
+        model_config=_model_cfg(),
+        citation_registry=registry,
     )
-    assert [c.url for c in turn2.citations] == ["https://example.com/github-ai"]
-    # Turn-local numbering: each turn's [1] maps to that turn's Sources only.
-    assert turn1.citations[0].url != turn2.citations[0].url
+    assert registry.number_for("shared1") == 1
+    assert registry.number_for("new2") == 2
+    assert "[1]" in prompts[0] and "shared1" in prompts[0]
+    assert "[1]" in prompts[1] and "shared1" in prompts[1]
+    assert "[2]" in prompts[1] and "new2" in prompts[1]
+    assert "[1]" in turn1.answer and "[1]" in turn2.answer
+    assert "[2]" in turn2.answer
 
-    # Simulate UI thread storage: each assistant turn carries its own citations.
-    thread = [
-        {"role": "user", "content": "What did Snyk announce about SCA?"},
-        {
-            "role": "assistant",
-            "content": turn1.answer,
-            "citations": [
-                {"title": c.title, "url": c.url, "competitor": c.competitor}
-                for c in turn1.citations
-            ],
-        },
-        {"role": "user", "content": "What did GitHub announce about AI?"},
-        {
-            "role": "assistant",
-            "content": turn2.answer,
-            "citations": [
-                {"title": c.title, "url": c.url, "competitor": c.competitor}
-                for c in turn2.citations
-            ],
-        },
-    ]
-    assistant_turns = [t for t in thread if t["role"] == "assistant"]
-    assert assistant_turns[0]["citations"][0]["url"] == "https://example.com/snyk-sca"
-    assert assistant_turns[1]["citations"][0]["url"] == "https://example.com/github-ai"
-
+    answers = [turn1.answer, turn2.answer]
+    sources = build_conversation_sources(answers, registry, [])
+    assert [s.key for s in sources] == ["1", "2"]
+    # Every cite in text is in the bottom list.
+    for num in extract_cited_news_nums("\n".join(answers)):
+        assert str(num) in {s.key for s in sources}
     conn.close()
+
+
+def test_new_chat_resets_numbering():
+    registry = CitationRegistry()
+    item = RetrievedItem(
+        id="a",
+        title="A",
+        url="https://example.com/a",
+        summary="a",
+        competitor="x",
+        relevance_score=1.0,
+        score=1.0,
+    )
+    registry.assign([item])
+    assert registry.number_for("a") == 1
+    fresh = CitationRegistry.from_dict(None)
+    fresh.assign([item])
+    assert fresh.number_for("a") == 1
+    assert fresh._next_num == 2

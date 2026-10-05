@@ -549,8 +549,21 @@ def _ask_user_turn_count(thread: list[dict]) -> int:
     return sum(1 for t in thread if t.get("role") == "user")
 
 
+def _clear_ask_chat() -> None:
+    """Reset conversation + stable citation numbering (New chat)."""
+    st.session_state.pop("_ci_ask_thread", None)
+    st.session_state.pop("_ci_ask_result", None)
+    st.session_state.pop("_ci_ask_registry", None)
+
+
 def _render_ask_tab(repo: Repository) -> None:
-    from src.services.ask_digest import MAX_FOLLOW_UPS, MAX_USER_TURNS
+    from src.services.ask_digest import (
+        MAX_FOLLOW_UPS,
+        MAX_USER_TURNS,
+        CitationRegistry,
+        build_conversation_sources,
+        format_comparison_context,
+    )
 
     st.markdown('<div class="ci-section-title">Ask the digest</div>', unsafe_allow_html=True)
     st.caption(
@@ -569,32 +582,26 @@ def _render_ask_tab(repo: Repository) -> None:
         for turn in thread:
             role = "You" if turn.get("role") == "user" else "Assistant"
             st.markdown(f"**{role}:** {turn.get('content') or ''}")
-            # Per-turn Sources: numbers in this answer match only this list.
-            if turn.get("role") == "assistant":
-                citations = turn.get("citations") or []
-                if citations:
-                    st.markdown("**Sources**")
-                    for i, c in enumerate(citations, start=1):
-                        st.markdown(
-                            f"[{i}] [{c.get('title')}]({c.get('url')}) "
-                            f"- {c.get('competitor')}"
-                        )
-                matrix_cites = turn.get("matrix_citations") or []
-                if matrix_cites:
-                    st.markdown("**Comparison matrix**")
-                    for m in matrix_cites:
-                        mid = m.get("mid") or "?"
-                        label = m.get("label") or m.get("claim") or mid
-                        url = m.get("url") or ""
-                        if url:
-                            st.markdown(f"[{mid}] [{label}]({url})")
-                        else:
-                            st.markdown(f"[{mid}] {label}")
-                elif turn.get("used_comparison"):
-                    st.caption(
-                        "Also used curated Comparison matrix claims "
-                        "(see Comparison tab)."
-                    )
+
+        # One Sources block under the whole conversation (cited ids only).
+        answers = [
+            str(t.get("content") or "")
+            for t in thread
+            if t.get("role") == "assistant"
+        ]
+        registry = CitationRegistry.from_dict(
+            st.session_state.get("_ci_ask_registry")
+        )
+        _, matrix_refs = format_comparison_context()
+        sources = build_conversation_sources(answers, registry, matrix_refs)
+        if sources:
+            st.markdown("**Sources**")
+            for src in sources:
+                if src.url:
+                    st.markdown(f"[{src.key}] [{src.label}]({src.url})")
+                else:
+                    st.markdown(f"[{src.key}] {src.label}")
+
         st.caption(
             f"Follow-ups used: {follow_ups_used}/{MAX_FOLLOW_UPS}. "
             "Start a new chat to reset."
@@ -606,8 +613,7 @@ def _render_ask_tab(repo: Repository) -> None:
             "Click **New chat** to continue with a fresh context."
         )
         if st.button("New chat", key="ask_new_chat_limit", use_container_width=True):
-            st.session_state.pop("_ci_ask_thread", None)
-            st.session_state.pop("_ci_ask_result", None)
+            _clear_ask_chat()
             st.rerun()
         return
 
@@ -627,8 +633,7 @@ def _render_ask_tab(repo: Repository) -> None:
         ask_clicked = st.button(ask_label, type="primary", use_container_width=True)
     with c2:
         if thread and st.button("New chat", key="ask_new_chat", use_container_width=True):
-            st.session_state.pop("_ci_ask_thread", None)
-            st.session_state.pop("_ci_ask_result", None)
+            _clear_ask_chat()
             st.rerun()
 
     st.markdown('<div class="ci-bottom-spacer"></div>', unsafe_allow_html=True)

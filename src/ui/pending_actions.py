@@ -76,6 +76,8 @@ def _execute(
         st.session_state["pending_down_id"] = None
         return True, "Feedback saved (👎)"
     if name == "ask":
+        from src.services.ask_digest import CitationRegistry
+
         history_raw = payload.get("history") or []
         history = [
             ChatTurn(role=str(t["role"]), content=str(t["content"]))
@@ -83,38 +85,25 @@ def _execute(
             if isinstance(t, dict) and t.get("role") and t.get("content")
         ]
         question = str(payload["question"])
-        result = ask_digest(repo, question, history=history)
+        registry = CitationRegistry.from_dict(
+            st.session_state.get("_ci_ask_registry")
+        )
+        result = ask_digest(
+            repo, question, history=history, citation_registry=registry
+        )
         prior = list(st.session_state.get("_ci_ask_thread") or [])
-        # Citations live on the assistant turn so each answer's [1]/[n]
-        # matches the Sources list rendered directly under that turn.
-        turn_citations = [
-            {"title": c.title, "url": c.url, "competitor": c.competitor}
-            for c in (result.citations or [])
-        ]
-        turn_matrix = [
-            {
-                "mid": m.mid,
-                "label": f"{m.company_label} — {m.capability_label}",
-                "claim": m.claim,
-                "url": m.source_url,
-            }
-            for m in (result.matrix_citations or [])
-        ]
+        # Conversation-stable numbers live in the registry; answers carry only text.
+        # Sources render once at the bottom from citations found in all answers.
         thread = prior + [
             {"role": "user", "content": question},
-            {
-                "role": "assistant",
-                "content": result.answer,
-                "citations": turn_citations,
-                "matrix_citations": turn_matrix,
-                "used_comparison": bool(result.used_comparison),
-            },
+            {"role": "assistant", "content": result.answer},
         ]
         st.session_state["_ci_ask_thread"] = thread
+        st.session_state["_ci_ask_registry"] = (
+            result.citation_registry or registry
+        ).to_dict()
         st.session_state["_ci_ask_result"] = {
             "answer": result.answer,
-            "citations": turn_citations,
-            "matrix_citations": turn_matrix,
             "used_comparison": bool(result.used_comparison),
             "model_id": result.model_id,
         }
