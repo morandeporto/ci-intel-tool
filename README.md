@@ -6,6 +6,23 @@ Config-driven, cost-aware, and demoable with local SQLite or an optional shared 
 
 Developed with AI-assisted tooling (Cursor); design decisions are documented in [DECISIONS.md](DECISIONS.md).
 
+## Quick look
+
+1. **See it without installing** — screenshots later in this README (UI tour).
+2. **Run it with no keys** — the app starts; Comparison loads from config; Daily Digest shows an empty state until news is collected.
+3. **See real data in a few minutes** — get a free [Gemini API key](https://aistudio.google.com/apikey) from Google AI Studio, copy `.env.example` to `.env` and set `GEMINI_API_KEY` (leave the Turso variables empty to use local SQLite), then:
+
+   ```bash
+   python -m src.pipeline.run_daily --backfill-days 2
+   streamlit run src/ui/app.py
+   ```
+
+   Open [http://localhost:8501](http://localhost:8501). Ask the Digest also uses the Gemini key; the free tier has a small daily quota.
+
+4. **Shared live data** — the author’s demo uses a shared Turso database; credentials are not public. A live demo is available on request.
+
+Happy to walk you through it or run a live demo; contact me through the application.
+
 ---
 
 ## Quick start
