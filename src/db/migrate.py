@@ -167,6 +167,28 @@ def migrate_schema(conn: Any) -> list[str]:
             """
         )
         if cur.fetchone() is None:
+            # Legacy rows: supplemental stats inserted a second row with null http_status.
+            conn.execute(
+                """
+                DELETE FROM source_run_stats AS d
+                WHERE d.http_status IS NULL
+                  AND EXISTS (
+                    SELECT 1 FROM source_run_stats k
+                    WHERE k.run_id = d.run_id
+                      AND k.source_id = d.source_id
+                      AND k.id != d.id
+                  )
+                """
+            )
+            conn.execute(
+                """
+                DELETE FROM source_run_stats
+                WHERE id NOT IN (
+                    SELECT MIN(id) FROM source_run_stats
+                    GROUP BY run_id, source_id
+                )
+                """
+            )
             conn.execute(
                 """
                 CREATE UNIQUE INDEX IF NOT EXISTS idx_source_run_stats_run_source
