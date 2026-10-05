@@ -23,7 +23,11 @@ from dotenv import load_dotenv
 
 from src.config_loader import PROJECT_ROOT, load_model_config
 from src.db.repository import Repository
-from src.process.llm_classify import ClassifyError, LlmUsageGuard
+from src.process.llm_classify import (
+    ClassifyError,
+    LlmUsageGuard,
+    neutralize_prompt_delimiters,
+)
 from src.process.llm_quota import (
     DailyQuotaError,
     friendly_quota_message,
@@ -516,10 +520,10 @@ def build_ask_prompt(
     """
     blocks = []
     for num, item in sorted(numbered_items, key=lambda x: x[0]):
-        summary = (item.summary or "").strip() or "(no summary)"
+        summary = neutralize_prompt_delimiters((item.summary or "").strip()) or "(no summary)"
         blocks.append(
             f"[{num}] id={item.id}\n"
-            f"title={item.title}\n"
+            f"title={neutralize_prompt_delimiters(item.title)}\n"
             f"competitor={item.competitor}\n"
             f"url={item.url}\n"
             f"summary={summary}\n"
