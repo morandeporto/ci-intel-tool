@@ -159,7 +159,11 @@ def test_build_ask_prompt_includes_matrix_and_news_and_history():
     assert "Artifactory" in prompt
     assert "PRIOR CONVERSATION" in prompt
     assert "What did Snyk announce?" in prompt
-    assert "[M1]" in prompt or "product-capability claims, cite as [M1]" in prompt
+    assert "neutral competitive-intelligence analyst" in prompt
+    assert "**What happened**" in prompt
+    assert "**What it means for JFrog**" in prompt
+    assert "no marketing" in prompt.lower() or "no superlatives" in prompt
+    assert "Do NOT state product capabilities that are not present" in prompt
 
 
 def test_filter_context_urls_drops_unknown_and_javascript(caplog):

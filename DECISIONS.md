@@ -4,6 +4,38 @@ A running record of architectural decisions made during the project, newest firs
 
 ---
 
+## [2026-10-05] Ask Digest: per-turn sources, [M#] matrix cites, neutral tone
+
+**Selected Option:** (1) Store retrieved news on each assistant turn and render a
+turn-local **Sources** list so `[1]`/`[n]` match only that answer. (2) Assign stable
+`[M1]`… ids to comparison-matrix claims in the prompt; resolve cited ids to
+clickable `source_url` links; allowlist only news URLs + matrix `source_url` values
+and only `http`/`https` (drop + log anything else). (3) Prompt the model as a
+neutral analyst with **What happened** (cited facts) and **What it means for JFrog**
+(labelled analysis); ban marketing superlatives and product claims not in the matrix.
+
+**Alternatives Considered:**
+- Single global Sources footer for the whole thread (rejected: renumbers bleed
+  across turns and confuses follow-ups)
+- Let the model paste raw matrix URLs (rejected: hard to validate; `[M#]` keeps
+  citation surface small and allowlistable)
+- Free-form marketing-friendly answers (rejected: invents capabilities and
+  overclaims vs curated YAML)
+
+**Rationale:** Security + Trust - grounded citations per turn, no arbitrary URL
+injection, analyst tone that does not invent product cells.
+
+**In short:**
+> "Each Ask answer owns its Sources list; matrix cells are cited as [M1] and only
+> become links if that URL was in the prompt context; the model must separate facts
+> from labelled JFrog implications without marketing fluff."
+
+**JFrog Product Connection (If applicable):**
+Same provenance discipline as Xray/Curation: only trust artifacts (URLs/claims)
+that entered through a known, curated path.
+
+---
+
 ## [2026-10-05] Dashboard does not run ingestion
 
 **Selected Option:** Streamlit displays digest, Ask, feedback, weight saves, and
