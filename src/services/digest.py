@@ -135,8 +135,19 @@ def list_digest(
     return rows
 
 
-def digest_kpis(repo: Repository, items: list[dict[str, Any]] | None = None) -> dict[str, Any]:
-    """Aggregate KPI numbers for the Daily Digest header."""
+def digest_kpis(
+    repo: Repository,
+    items: list[dict[str, Any]] | None = None,
+    *,
+    feedback_rows: list[dict[str, Any]] | None = None,
+    include_latest_run: bool = True,
+) -> dict[str, Any]:
+    """Aggregate KPI numbers for the Daily Digest header.
+
+    ``feedback_rows`` reuses an existing ``repo.list_feedback()`` result and
+    ``include_latest_run=False`` skips the run lookup (``latest_run_*`` become None),
+    each saving one remote round trip.
+    """
     items = items if items is not None else list_digest(repo)
     # Exclude fallback / unscored rows from average and high-score KPIs.
     scored_items = [
@@ -145,12 +156,13 @@ def digest_kpis(repo: Repository, items: list[dict[str, Any]] | None = None) -> 
         if i.get("relevance_score") is not None and not i.get("is_fallback")
     ]
     scores = [float(i["relevance_score"]) for i in scored_items]
-    latest_run = repo.get_latest_run()
+    latest_run = repo.get_latest_run() if include_latest_run else None
+    feedback = feedback_rows if feedback_rows is not None else repo.list_feedback()
     return {
         "item_count": len(items),
         "avg_score": round(sum(scores) / len(scores), 2) if scores else None,
         "high_score_count": sum(1 for s in scores if s >= 4.0),
-        "feedback_count": len(repo.list_feedback()),
+        "feedback_count": len(feedback),
         "latest_run_status": latest_run["status"] if latest_run else None,
         "latest_run_at": latest_run["started_at"] if latest_run else None,
         "fallback_count": sum(1 for i in items if i.get("is_fallback")),

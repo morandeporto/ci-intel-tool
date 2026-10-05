@@ -49,6 +49,17 @@ def get_latest_feedback(repo: Repository, news_item_id: str) -> dict | None:
     return repo.get_latest_feedback(news_item_id)
 
 
+def latest_feedback_by_item(rows: list[dict]) -> dict[str, dict]:
+    """Map news_item_id -> newest feedback row. ``rows`` must be newest-first.
+
+    Same result as ``get_latest_feedback`` per item, from one query instead of one per card.
+    """
+    latest: dict[str, dict] = {}
+    for row in rows:
+        latest.setdefault(str(row["news_item_id"]), row)
+    return latest
+
+
 def list_item_feedback(repo: Repository, news_item_id: str) -> list[dict]:
     """Return feedback rows for one news item (newest first)."""
     return [dict(r) for r in repo.list_feedback(news_item_id)]

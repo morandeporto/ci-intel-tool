@@ -28,7 +28,7 @@ from src.services.digest import (
     item_news_date,
     list_digest,
 )
-from src.services.feedback import get_latest_feedback
+from src.services.feedback import latest_feedback_by_item
 from src.services.weights import get_effective_weights
 from src.ui.components import (
     FAVICON_PATH,
@@ -167,11 +167,10 @@ def _render_kpis(kpis: dict) -> None:
             st.markdown(render_kpi(value, label, glow=glow), unsafe_allow_html=True)
 
 
-def _render_feedback_row(repo: Repository, item: dict) -> None:
+def _render_feedback_row(item: dict, latest: dict | None) -> None:
     item_id = str(item["id"])
     pending_key = "pending_down_id"
     is_editing_down = st.session_state.get(pending_key) == item_id
-    latest = get_latest_feedback(repo, item_id)
     saved_vote = (latest or {}).get("vote")
     saved_rationale = ((latest or {}).get("rationale") or "").strip()
 
@@ -530,7 +529,11 @@ def _render_digest_tab(repo: Repository) -> None:
             visible.append(item)
     items = visible
 
-    _render_kpis(digest_kpis(repo, items))
+    # One feedback query serves the KPI count and every card.
+    feedback_rows = repo.list_feedback()
+    _render_kpis(
+        digest_kpis(repo, items, feedback_rows=feedback_rows, include_latest_run=False)
+    )
 
     if not items:
         st.info(
@@ -541,9 +544,10 @@ def _render_digest_tab(repo: Repository) -> None:
         return
 
     start, end = _render_digest_controls(len(items))
+    latest_by_item = latest_feedback_by_item(feedback_rows)
     for item in items[start:end]:
         st.markdown(render_news_card(item), unsafe_allow_html=True)
-        _render_feedback_row(repo, item)
+        _render_feedback_row(item, latest_by_item.get(str(item["id"])))
 
 
 def _ask_user_turn_count(thread: list[dict]) -> int:
