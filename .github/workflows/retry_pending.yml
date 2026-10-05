@@ -19,6 +19,9 @@ on:
     - cron: "37 10 * * *"
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 concurrency:
   # Never overlap with daily ingest / another retry (atomic DB claims are a second line).
   group: ci-intel-pipeline

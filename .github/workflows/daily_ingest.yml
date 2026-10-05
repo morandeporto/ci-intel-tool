@@ -11,6 +11,9 @@ on:
     - cron: "17 4 * * *"
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 concurrency:
   # Shared with retry_pending.yml so ingest and nightly rescore never overlap.
   group: ci-intel-pipeline
