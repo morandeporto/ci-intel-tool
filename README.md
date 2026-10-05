@@ -81,7 +81,7 @@ pytest -q
 
 | Brief requirement | Where this repo covers it |
 |-------------------|---------------------------|
-| Daily updates on industry / competitor news | Pipeline + GitHub Actions cron (`daily_ingest.yml` at 06:00 UTC); Daily Digest tab |
+| Daily updates on industry / competitor news | Pipeline + GitHub Actions cron (`daily_ingest.yml` at 04:17 UTC); Daily Digest tab |
 | JFrog vs competitors comparison | Comparison tab + curated `config/comparison.yaml` (every claim sourced or Unknown) |
 | Real working solution (not a mockup) | Live RSS → classify → SQLite/Turso → Streamlit; **Run Now** and cron |
 | Design / architecture / mechanism | [Architecture](#architecture), [Key design decisions](#key-design-decisions), [DECISIONS.md](DECISIONS.md) |
@@ -106,8 +106,8 @@ flowchart LR
   SCORE --> DB["SQLite or Turso"]
   DB --> SVC["src/services/"]
   SVC --> UI["Streamlit UI"]
-  CFG --> GHA1["daily_ingest.yml\n06:00 UTC"]
-  CFG --> GHA2["retry_pending.yml\n08:30 UTC"]
+  CFG --> GHA1["daily_ingest.yml\n04:17 UTC"]
+  CFG --> GHA2["retry_pending.yml\n10:37 UTC"]
   GHA1 --> FETCH
   GHA2 --> LLM
 ```
@@ -132,7 +132,7 @@ flowchart LR
 
 **Services → UI.** `src/services/` (digest, ask, comparison, feedback, weights) stays separate from Streamlit so a future read-only MCP layer can wrap the same functions.
 
-**GitHub Actions.** `daily_ingest.yml` (06:00 UTC + manual) runs `--trigger cron` against Turso. `retry_pending.yml` (08:30 UTC) runs `--rescore-fallbacks`. Both share concurrency group `ci-intel-pipeline`.
+**GitHub Actions.** `daily_ingest.yml` (04:17 UTC + manual) runs ingest against Turso. `retry_pending.yml` (10:37 UTC) runs `--rescore-fallbacks`. Both share concurrency group `ci-intel-pipeline`. Scheduled times are best-effort on GitHub (see [Challenges and pitfalls](#challenges-and-pitfalls)).
 
 ---
 
@@ -221,7 +221,7 @@ One-line summaries — full rationale in [DECISIONS.md](DECISIONS.md):
 - SQLite locally or optional shared Turso
 - Streamlit UI: Daily Digest (filters, weights, feedback, Run Now), Ask the Digest, Comparison, Pipeline runs
 - Feedback table (item id, original score, 👍/👎, optional rationale, timestamp) + Save weights to DB
-- GitHub Actions daily ingest (06:00 UTC) and pending rescore (08:30 UTC)
+- GitHub Actions daily ingest (04:17 UTC) and pending rescore (10:37 UTC)
 - Unit + offline pipeline integration tests
 
 ### Future work
@@ -240,8 +240,9 @@ One-line summaries — full rationale in [DECISIONS.md](DECISIONS.md):
 
 | Pitfall | What we saw | Mitigation |
 |---------|-------------|------------|
-| Gemini free-tier **daily quota is per model** | `PerDay` errors stop generate; Ask / Run Now / cron share the same key | Soft `llm_usage` + `model_daily_limits` per model id; **batched** classify (`batch_size: 5`); optional `fallback_model` switch once; remaining selected items → `pending_scoring`; end-of-run auto-rescore (`rescore_fallback_*`); nightly `retry_pending.yml` at 08:30 UTC |
-| Feeds that block or fail | JFrog blog empty **HTTP 202**; IR/CISA **403**; hnrss.org intermittent **502**; The Register bot-challenge HTML | Browser UA only for `jfrog_blog`; disable with dated YAML notes; 5xx retry+backoff for `hn_*`; `required: false` soft-fail for community |
+| Gemini free-tier **daily quota is per model** | `PerDay` errors stop generate; Ask / Run Now / cron share the same key | Soft `llm_usage` + `model_daily_limits` per model id; **batched** classify (`batch_size: 5`); optional `fallback_model` switch once; remaining selected items → `pending_scoring`; end-of-run auto-rescore (`rescore_fallback_*`); nightly `retry_pending.yml` at 10:37 UTC |
+| **GitHub scheduled workflow delay** | Cron at 04:17 / 10:37 UTC often started **4–7 hours late** in practice (e.g. 06:00 schedule firing ~13:00 UTC) | Document as platform limitation; production would use a **dedicated scheduler** (e.g. Google Cloud Scheduler, AWS EventBridge, or a Kubernetes CronJob) with a small worker that triggers the same pipeline entrypoint |
+| Feeds that block or fail | JFrog blog empty **HTTP 202**; IR/CISA **403**; hnrss.org **502/timeouts on every run** since 2026-10-03; The Register bot-challenge HTML | Browser UA only for `jfrog_blog`; disable with dated YAML notes; **all five `hn_*` feeds disabled 2026-10-05**; `required: false` soft-fail for community |
 | Date-only timestamps | Midnight UTC stamps look “old” vs a morning run | **48h** `window_hours`; UI filter by ingest day (Asia/Jerusalem) |
 | Archive-size feeds | `snyk.io/blog/feed/` ~1670 historical items | Parse/normalize **only in-window** entries before selection |
 | Noisy community sources | `r/devops` was 25/25 filtered under strict gate | Disabled `reddit_devops`; keep HN keyword feeds with strict gate |
@@ -317,7 +318,7 @@ src/db/                 SQLite/Turso connection, migrate, models, repository
 src/services/           digest, ask_digest, comparison, feedback, weights
 src/ui/                 Streamlit app, components, styles.css, assets/
 tests/                  Unit tests + offline pipeline integration tests
-.github/workflows/      daily_ingest.yml (06:00 UTC), retry_pending.yml (08:30 UTC)
+.github/workflows/      daily_ingest.yml (04:17 UTC), retry_pending.yml (10:37 UTC)
 DECISIONS.md            Architectural decision log
 PRESENTATION_PREP.md    Panel presentation script and Q&A
 ```
