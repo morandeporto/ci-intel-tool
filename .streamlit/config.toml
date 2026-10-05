@@ -11,3 +11,7 @@ headless = true
 
 [browser]
 gatherUsageStats = false
+
+[client]
+# Uncaught exception messages go to the server console, not the browser.
+showErrorDetails = false
