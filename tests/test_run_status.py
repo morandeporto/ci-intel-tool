@@ -31,7 +31,7 @@ def test_partial_when_fallback_ratio_at_or_below_30_percent() -> None:
     assert status == "partial"
 
 
-def test_failed_when_all_fallbacks() -> None:
+def test_degraded_when_all_fallbacks_stored_for_rescore() -> None:
     status = _resolve_status(
         items_fetched=5,
         items_new=5,
@@ -41,7 +41,18 @@ def test_failed_when_all_fallbacks() -> None:
         source_errors=0,
         attempted=5,
     )
-    assert status == "failed"
+    assert status == "degraded"
+
+
+def test_all_fallbacks_exit_zero_with_gha_warning(monkeypatch, capsys) -> None:
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    result = PipelineResult(
+        status="degraded",
+        run_id="r1",
+        message="Model call failed for every selected item (2/2 fallback)",
+    )
+    assert exit_code_for_live_run(result) == 0
+    assert "::warning::Run degraded:" in capsys.readouterr().out
 
 
 def test_success_when_no_fallbacks() -> None:

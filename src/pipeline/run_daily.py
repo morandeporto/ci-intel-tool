@@ -1144,9 +1144,9 @@ def _resolve_status(
         return "success"
     if items_scored == 0 and items_failed > 0:
         return "failed"
-    # Every model call failed → hard failure (no silent success for cron/GHA).
+    # Every model call used fallback placeholders; items are stored and heal via rescore.
     if attempted > 0 and items_fallback >= attempted and items_fallback > 0:
-        return "failed"
+        return "degraded"
     fallback_ratio = items_fallback / attempted if attempted else 0.0
     if fallback_ratio > fallback_degraded_ratio:
         return "degraded"
