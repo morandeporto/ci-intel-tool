@@ -4,8 +4,8 @@
 #   Observed Gemini free-tier error hint example (2026-10): "Please retry in 3h42m12s"
 #   / RetryInfo delay. Soft llm_usage day boundary is UTC (quota_day_timezone).
 #   Free-tier PerDay caps often roll near US Pacific midnight (~07:00-08:00 UTC).
-#   Cron below is 08:30 UTC - after a typical reset window, with a safety margin,
-#   and AFTER the daily ingest at 06:00 UTC so primary quota is not fought mid-day.
+#   Cron below is 10:37 UTC - after a typical reset window, with a safety margin,
+#   and AFTER the daily ingest (~04:17 UTC) so primary quota is not fought mid-day.
 #
 # Requires repository secrets (same as daily ingest):
 #   GEMINI_API_KEY, TURSO_DATABASE_URL, TURSO_AUTH_TOKEN
@@ -14,8 +14,9 @@ name: Retry Pending Scoring
 
 on:
   schedule:
-    # 08:30 UTC daily - see header comment for quota-reset rationale.
-    - cron: "30 8 * * *"
+    # GitHub schedule is best-effort and can slip by hours; production would use
+    # a dedicated scheduler (Cloud Scheduler, Kubernetes CronJob, etc.).
+    - cron: "37 10 * * *"
   workflow_dispatch:
 
 concurrency:
