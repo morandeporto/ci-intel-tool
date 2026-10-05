@@ -7,8 +7,9 @@ from pathlib import Path
 import streamlit as st
 
 from src.db.connection import (
+    get_connection,
+    init_db,
     is_connection_error,
-    open_repo_connection,
     ping_connection,
     turso_configured,
 )
@@ -18,11 +19,34 @@ DB_DIRTY_KEY = "_ci_db_dirty"
 
 
 @st.cache_resource
+def _ensure_schema_ready(cache_key: str) -> bool:
+    """Apply schema + migrations once per server process for this DB key.
+
+    Kept separate from the connection cache so post-write reconnects (and
+    ``invalidate_db_cache``) do not re-run the expensive Turso round trips.
+    """
+    if turso_configured():
+        init_db()
+    else:
+        from src.db.connection import resolve_db_path
+
+        init_db(resolve_db_path())
+    return True
+
+
+@st.cache_resource
 def _cached_connection(cache_key: str):
-    return open_repo_connection()
+    _ensure_schema_ready(cache_key)
+    if turso_configured():
+        return get_connection(), None
+    from src.db.connection import resolve_db_path
+
+    path = resolve_db_path()
+    return get_connection(path), path
 
 
 def invalidate_db_cache() -> None:
+    """Drop the cached connection only; schema stays warm for this process."""
     try:
         _cached_connection.clear()
     except Exception:  # noqa: BLE001
