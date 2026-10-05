@@ -5,6 +5,37 @@ Maintained as decisions are made (see `.cursorrules`).
 
 ---
 
+## [2026-10-05] Dashboard does not run ingestion
+
+**Selected Option:** Streamlit displays digest, Ask, feedback, weight saves, and
+pipeline history only. Collection runs exclusively via GitHub Actions
+(`daily_ingest.yml` schedule or **Run workflow**) or locally with
+`python -m src.pipeline.run_daily`. The historical run trigger label `ui` remains
+valid so old rows still render; nothing creates new `ui` runs.
+
+**Alternatives Considered:**
+- Keep **Run Now** with a tighter `ui_run_now_limit` (rejected: UI clicks still
+  burn shared Gemini quota and block the Streamlit process)
+- Separate “ingest worker” API behind the button (rejected: over-engineering for
+  a take-home; Actions + CLI already cover manual runs)
+- Seed DB for empty demos (rejected earlier; empty state points to Pipeline runs)
+
+**Rationale:** Cost / Simplicity / Operability - one place to start and monitor
+ingestions (Actions + Pipeline runs tab); dashboard clicks cannot exhaust free-tier
+RPD; no long-running fetch/classify work inside the Streamlit process.
+
+**How to Explain in an Interview (20-30 Seconds Verbal):**
+> "The dashboard is a read path plus lightweight feedback and weight saves. Ingest
+> stays in cron, workflow_dispatch, or the CLI so a panel click cannot burn the
+> model quota, and operators have one place — GitHub Actions and the Pipeline runs
+> tab — to see what actually ran."
+
+**JFrog Product Connection (If applicable):**
+Same separation as Artifactory UI vs CI build agents — interactive consoles browse
+and annotate; scheduled or gated pipelines perform the heavy, quota-sensitive work.
+
+---
+
 ## [2026-10-04] Persist hard PerDay `blocked_until` per model
 
 **Selected Option:** On a hard Gemini PerDay error, parse the retry hint
@@ -36,6 +67,8 @@ signal once, then fail closed until the window reopens.
 
 ## [2026-10-03] UI Run Now limit as config (`ui_run_now_limit`)
 
+**Superseded by:** [Dashboard does not run ingestion](#2026-10-05-dashboard-does-not-run-ingestion)
+
 **Selected Option:** Cap Streamlit **Run Now** via `ui_run_now_limit` in
 `config/model.yaml` (default **10**). Cron / CLI still use `max_items_per_run` (20)
 unless `--limit` overrides.
@@ -43,7 +76,7 @@ unless `--limit` overrides.
 **Alternatives Considered:**
 - Hardcode `limit=10` in `app.py` (rejected: invisible to operators)
 - Same cap as cron (rejected: one demo click can exhaust free-tier RPD)
-- No UI ingest button (rejected: live demo requirement)
+- No UI ingest button (rejected at the time for live demo; later chosen — see superseding entry)
 
 **Rationale:** Cost/Latency - protect Gemini free-tier headroom during panel demos
 while keeping cron’s fuller daily selection.
@@ -66,7 +99,7 @@ Ask / Comparison / Pipeline runs, instead of `st.tabs`.
 
 **Alternatives Considered:**
 - `st.tabs` (rejected: Streamlit resets to the first tab on every rerun, which
-  breaks Ask follow-ups and the two-phase Run Now / toast UX)
+  breaks Ask follow-ups and the two-phase pending-action / toast UX)
 - Query-param deep links (rejected: extra complexity for a take-home)
 
 **Rationale:** UX reliability - pending actions and Ask answers must leave the user
@@ -74,8 +107,8 @@ on the tab they were using after `st.rerun()`.
 
 **How to Explain in an Interview (20-30 Seconds Verbal):**
 > "Streamlit tabs look right but reset on rerun. A keyed radio keeps the active
-> section in session_state, which matters when Run Now or Ask triggers a two-step
-> loader and refresh."
+> section in session_state, which matters when Ask or Save weights triggers a
+> two-step loader and refresh."
 
 **JFrog Product Connection (If applicable):**
 Not product-specific - same lesson as preferring stable control state over fragile
@@ -279,7 +312,8 @@ provenance tiers in Xray/Curation - noisy signals stay labeled and gated.
 
 **Selected Option:** Delete `data/seed.db` / `scripts/seed_db.py` and remove the
 `resolve_db_path` seed fallback. The app always uses Turso when configured, else
-local `data/ci_intel.db`. Empty DB shows a friendly empty state with **Run Now**.
+local `data/ci_intel.db`. Empty DB shows a friendly empty state pointing at the
+daily workflow / Pipeline runs tab (ingestion is not started from the UI).
 
 **Alternatives Considered:**
 - Keep seed for offline demos (rejected: fake news undermines trust in a CI tool)
@@ -290,7 +324,8 @@ Shared Turso covers multi-reviewer demos without fake data.
 
 **How to Explain in an Interview (20-30 Seconds Verbal):**
 > "I removed the seed DB on purpose. Competitive intel should never show fake news.
-> Reviewers share Turso when configured, locally you get an empty state and Run Now."
+> Reviewers share Turso when configured; locally you get an empty state and trigger
+> collection from Actions or the CLI."
 
 **JFrog Product Connection (If applicable):**
 Same spirit as not promoting unscanned packages - do not present untrusted demo
