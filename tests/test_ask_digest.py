@@ -182,6 +182,8 @@ def test_build_ask_prompt_includes_matrix_and_news_and_history():
     assert "no marketing" in prompt.lower() or "no superlatives" in prompt
     assert "Do NOT state product capabilities that are not present" in prompt
     assert "stable across the conversation" in prompt
+    assert "the comparison matrix has no entry for" in prompt
+    assert 'Never state that JFrog or a competitor "lacks"' in prompt
 
 
 def test_filter_context_urls_drops_unknown_and_javascript(caplog):

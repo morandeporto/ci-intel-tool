@@ -524,6 +524,10 @@ Tone and structure (required):
   still grounded in the provided sources, not speculation beyond them.
 - Do NOT state product capabilities that are not present in the PRODUCT COMPARISON
   text. If a capability is missing or Unknown, say so rather than inventing it.
+- Never state that JFrog or a competitor "lacks" / "does not offer" / "has no"
+  a capability unless that company's matrix cell is explicitly Unknown or missing.
+  In that case write: "the comparison matrix has no entry for <company> on
+  <capability>." Do not infer absence from silence when a cell has a claim.
 
 Citation rules:
 - For news facts, cite as [n] using the EXACT numbers shown on retrieved items
