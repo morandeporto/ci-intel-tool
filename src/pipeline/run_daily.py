@@ -685,6 +685,14 @@ def run_rescore_only(
             f"Rescored pending/fallbacks: attempted={stats.attempted} ok={stats.ok} "
             f"still_fallback={stats.still_fallback} retries={stats.retries_used}"
         )
+        # Same rule as the daily run: cause summary on failures, not on a quota stop.
+        if stats.errors and not stats.quota_stopped:
+            cause_summary = summarize_model_failure_causes(stats.errors)
+            if cause_summary:
+                logger.warning(
+                    "Model classify failures for run %s: %s", run_id, cause_summary
+                )
+                msg += f"; {cause_summary}"
         if stats.model_switch_note:
             msg += f" | {stats.model_switch_note}"
         if stats.quota_stopped:
