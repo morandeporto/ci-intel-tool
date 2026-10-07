@@ -388,9 +388,12 @@ def rescore_fallback_items(
                 model_id_override=model_id,
             )
         except DailyQuotaError as exc:
-            # Release claimed-but-unscored rows back to pending, do not fail the job.
+            # Release every claimed row that is still status=scoring (current batch +
+            # not-yet-processed batches). Rows finished in earlier batches are already
+            # classified / pending and are left alone by the status guard.
+            # Former fallbacks become pending_scoring (not scored) — intentional.
             stats.quota_stopped = True
-            for row in batch_rows:
+            for row in claimed:
                 try:
                     repo.conn.execute(
                         """
