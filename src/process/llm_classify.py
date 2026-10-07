@@ -963,6 +963,8 @@ def classify_entries_batch_with_fallback(
     DailyQuotaError propagates immediately (no individual retries, no fallback).
     Returns one tuple per input entry (same order):
         (entry, result, used_fallback, error_message_or_None, retries_used)
+    ``retries_used`` is the total for the whole batch (batch call + individual
+    retries) and is repeated on every tuple; callers must count it once per batch.
     """
     if not entries:
         return []

@@ -298,6 +298,11 @@ def _failure_message(exc: BaseException) -> str:
     return f"{prefix}: {sanitize_error_text(str(exc), max_len=480)}"
 
 
+def _batch_retries(outcomes: list[tuple[Any, ...]]) -> int:
+    """Retries for one batch call; every outcome tuple repeats the same batch total."""
+    return int(outcomes[0][4]) if outcomes else 0
+
+
 @dataclass
 class RescoreStats:
     attempted: int = 0
@@ -469,10 +474,10 @@ def rescore_fallback_items(
             stats.errors.append(f"rescore batch failed: {exc}")
             continue
 
-        for row, (_entry, result, used_fallback, err, retries) in zip(
+        stats.retries_used += _batch_retries(outcomes)
+        for row, (_entry, result, used_fallback, err, _retries) in zip(
             batch_rows, outcomes, strict=True
         ):
-            stats.retries_used += int(retries)
             news_id = str(row["id"])
             try:
                 if used_fallback:
@@ -909,7 +914,8 @@ def run_daily(
                     classify_errors.append(f"classify batch failed: {exc}")
                     continue
 
-                for entry, result, used_fallback, err, retries_used in batch_outcomes:
+                retries_used_total += _batch_retries(batch_outcomes)
+                for entry, result, used_fallback, err, _retries in batch_outcomes:
                     try:
                         _persist_classified(
                             repo,
@@ -925,7 +931,6 @@ def run_daily(
                             or None,
                         )
                         items_scored += 1
-                        retries_used_total += int(retries_used)
                         classified_by_source[entry.source_id] = (
                             classified_by_source.get(entry.source_id, 0) + 1
                         )
