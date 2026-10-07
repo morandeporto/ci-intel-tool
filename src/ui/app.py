@@ -245,8 +245,8 @@ def _render_feedback_row(item: dict, latest: dict | None) -> None:
 
 DIGEST_PAGE_SIZE = 10
 DIGEST_SORT_LABELS = {
-    "Creation date": "date",
     "Relevance": "relevance",
+    "Creation date": "date",
 }
 
 
@@ -266,7 +266,7 @@ def _on_digest_page_jump() -> None:
 
 
 def _digest_sort_key() -> str:
-    label = st.session_state.get("digest_sort_label", "Creation date")
+    label = st.session_state.get("digest_sort_label", "Relevance")
     return DIGEST_SORT_LABELS.get(label, "date")
 
 
@@ -383,7 +383,7 @@ def _render_digest_controls(total: int) -> tuple[int, int]:
             options=list(DIGEST_SORT_LABELS.keys()),
             key="digest_sort_label",
             on_change=_on_digest_sort_change,
-            help="Default: newest creation date first",
+            help="Default: highest relevance first",
             label_visibility="collapsed",
         )
     with meta_c:
@@ -431,7 +431,7 @@ def _render_digest_tab(repo: Repository) -> None:
     if "applied_weights" not in st.session_state:
         st.session_state.applied_weights = dict(get_effective_weights(repo))
     if "digest_sort_label" not in st.session_state:
-        st.session_state.digest_sort_label = "Creation date"
+        st.session_state.digest_sort_label = "Relevance"
 
     _weight_editor_fragment(repo)
 

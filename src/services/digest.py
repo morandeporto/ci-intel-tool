@@ -79,9 +79,9 @@ def list_digest(
     weight_overrides: dict[str, float] | None = None,
     limit: int | None = None,
     persist_scores: bool = False,
-    sort_by: DigestSort = "date",
+    sort_by: DigestSort = "relevance",
 ) -> list[dict[str, Any]]:
-    """Return digest items sorted by creation date (default) or relevance.
+    """Return digest items sorted by relevance (default) or creation date.
 
     When ``weight_overrides`` is provided, scores are recalculated in memory from
     stored dimension scores so the LLM is never re-queried. Set
