@@ -71,14 +71,20 @@ def _normalize_run_row(row: dict[str, Any]) -> dict[str, Any]:
     return row
 
 
-def _scalar(row: Any, key: str = "c", index: int = 0) -> Any:
+def _scalar(row: Any, key: str = "c", index: int | None = 0) -> Any:
+    """Read one column from a sqlite3.Row (by name), dict, or plain tuple (by index).
+
+    Turso/libsql returns plain tuples, so ``index`` is the only thing that works
+    there; ``None`` falls back to 0 instead of raising ``TypeError`` on ``row[None]``.
+    """
     if row is None:
         return None
+    position = 0 if index is None else int(index)
     if isinstance(row, sqlite3.Row):
         return row[key]
     if isinstance(row, dict):
-        return row.get(key, row.get(list(row.keys())[index]))
-    return row[index]
+        return row.get(key, row.get(list(row.keys())[position]))
+    return row[position]
 
 
 class Repository:
@@ -612,7 +618,7 @@ class Repository:
         row = cur.fetchone()
         if row is None:
             return None
-        raw = _scalar(row, "blocked_until", None)
+        raw = _scalar(row, "blocked_until", 0)
         if raw is None:
             return None
         text = str(raw).strip()
