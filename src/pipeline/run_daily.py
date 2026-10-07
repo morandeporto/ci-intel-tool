@@ -306,6 +306,19 @@ class RescoreStats:
     retries_used: int = 0
     quota_stopped: bool = False
     errors: list[str] = field(default_factory=list)
+    # Set when this rescore switched primary → fallback_model after a hard PerDay.
+    model_switch_note: str | None = None
+
+
+def _fallback_model_hard_blocked(repo: Repository, model_id: str) -> bool:
+    """True when ``llm_model_blocks.blocked_until`` for ``model_id`` is still in the future."""
+    until = repo.get_model_blocked_until(model_id)
+    if until is None:
+        return False
+    now = datetime.now(timezone.utc)
+    if until.tzinfo is None:
+        until = until.replace(tzinfo=timezone.utc)
+    return until > now
 
 
 def rescore_fallback_items(
@@ -344,8 +357,14 @@ def rescore_fallback_items(
     if not candidates:
         return stats
 
-    model_id = model_id_override or resolve_pipeline_model(
+    primary_model = model_id_override or resolve_pipeline_model(
         model_cfg, use_fallback=use_fallback_model
+    )
+    fallback_model = str(model_cfg.get("fallback_model") or "").strip()
+    model_id = primary_model
+    active_is_fallback = bool(
+        use_fallback_model
+        or (fallback_model and model_id == fallback_model)
     )
     configure_llm_interval(model_min_interval_seconds(model_cfg, model_id))
     guard = usage_guard or LlmUsageGuard(
@@ -373,9 +392,13 @@ def rescore_fallback_items(
         return stats
 
     now = _utc_now()
-    for batch_rows in [
+    batches = [
         claimed[i : i + batch_size] for i in range(0, len(claimed), batch_size)
-    ]:
+    ]
+    batch_idx = 0
+    while batch_idx < len(batches):
+        batch_rows = batches[batch_idx]
+        batch_idx += 1
         entries = [_row_to_normalized_entry(r) for r in batch_rows]
         item_ids = [str(r["id"]) for r in batch_rows]
         try:
@@ -388,6 +411,34 @@ def rescore_fallback_items(
                 model_id_override=model_id,
             )
         except DailyQuotaError as exc:
+            # Switch to fallback_model at most once (same rule as daily ingest).
+            if (
+                not active_is_fallback
+                and fallback_model
+                and model_id != fallback_model
+                and not _fallback_model_hard_blocked(repo, fallback_model)
+            ):
+                logger.warning(
+                    "Rescore primary %s hit daily quota (%s), switching to fallback_model=%s",
+                    model_id,
+                    exc.retry_hint or "no hint",
+                    fallback_model,
+                )
+                reason = "soft daily budget" if exc.soft_budget else "PerDay"
+                # Kept out of stats.errors: that list feeds items_failed / status.
+                stats.model_switch_note = (
+                    f"switched to {fallback_model} after {reason} on {model_id}"
+                )
+                model_id = fallback_model
+                active_is_fallback = True
+                configure_llm_interval(
+                    model_min_interval_seconds(model_cfg, model_id)
+                )
+                guard = LlmUsageGuard(
+                    repo, model_cfg, purpose="rescore", model_id=model_id
+                )
+                batch_idx -= 1  # retry this same batch on the fallback model
+                continue
             # Release every claimed row that is still status=scoring (current batch +
             # not-yet-processed batches). Rows finished in earlier batches are already
             # classified / pending and are left alone by the status guard.
@@ -629,6 +680,8 @@ def run_rescore_only(
             f"Rescored pending/fallbacks: attempted={stats.attempted} ok={stats.ok} "
             f"still_fallback={stats.still_fallback} retries={stats.retries_used}"
         )
+        if stats.model_switch_note:
+            msg += f" | {stats.model_switch_note}"
         if stats.quota_stopped:
             msg += " | daily quota - remaining items stay pending_scoring"
         repo.finish_run(
@@ -640,7 +693,9 @@ def run_rescore_only(
             items_classified_ok=stats.ok,
             items_fallback=stats.still_fallback,
             retries_used=stats.retries_used,
-            error_message=msg if status != "success" else None,
+            error_message=(
+                msg if status != "success" or stats.model_switch_note else None
+            ),
         )
         return PipelineResult(
             status=status,
