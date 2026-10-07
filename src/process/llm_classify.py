@@ -138,6 +138,27 @@ class ClassifyError(Exception):
     """Raised when classification cannot produce a validated result."""
 
 
+# Exception types that mean "our code is broken", not "the model is down".
+# _gemini_generate wraps every SDK/network failure in ClassifyError, so one of
+# these escaping the classify path was raised locally before any API call.
+LOCAL_ERROR_TYPES = (TypeError, AttributeError, KeyError, NameError, IndexError)
+
+
+class PipelineInternalError(Exception):
+    """A local programming error raised before any model call.
+
+    Deliberately not a ClassifyError: callers must fail the run instead of
+    writing mid-score fallbacks, otherwise graceful degradation hides the bug
+    (as it did for two days in 2026-10 with a bad tuple-row index).
+    """
+
+    @classmethod
+    def wrap(cls, exc: BaseException, *, where: str) -> "PipelineInternalError":
+        err = cls(f"{type(exc).__name__} in {where}: {exc}")
+        err.__cause__ = exc
+        return err
+
+
 class LlmUsageGuard:
     """Soft per-model daily budget, hard PerDay blocks, and call counter."""
 
@@ -654,6 +675,9 @@ def _reraise_quota_or_classify(exc: BaseException, *, model_id: str) -> None:
     """Convert daily-quota / exhausted-429 into DailyQuotaError, else ClassifyError."""
     if isinstance(exc, DailyQuotaError):
         raise exc
+    if isinstance(exc, LOCAL_ERROR_TYPES):
+        # Keep local bugs visible instead of relabeling them "Gemini API call failed".
+        raise exc
     raise_if_daily_quota(exc, model_id=model_id)
     # Exhausted retries on transient 429 → stop as quota (avoid loops).
     msg = str(exc)
@@ -800,6 +824,8 @@ def classify_entry_with_fallback(
         return result, False, None, retries_used
     except DailyQuotaError:
         raise
+    except LOCAL_ERROR_TYPES as exc:
+        raise PipelineInternalError.wrap(exc, where="single-item classify")
     except ClassifyError as exc:
         retries_used = int(getattr(exc, "retries_used", 0) or 0)
         cause = format_model_failure_cause(exc)
@@ -961,6 +987,8 @@ def classify_entries_batch_with_fallback(
         retries_total += retries_used
     except DailyQuotaError:
         raise
+    except LOCAL_ERROR_TYPES as exc:
+        raise PipelineInternalError.wrap(exc, where="batch classify")
     except ClassifyError as exc:
         cause = format_model_failure_cause(exc)
         batch_error = f"{cause}: {exc}"
@@ -991,6 +1019,8 @@ def classify_entries_batch_with_fallback(
             retries_total += retries_used
         except DailyQuotaError:
             raise
+        except LOCAL_ERROR_TYPES as exc:
+            raise PipelineInternalError.wrap(exc, where="individual retry classify")
         except ClassifyError as exc:
             item_errors[mid] = f"{format_model_failure_cause(exc)}: {exc}"
             continue

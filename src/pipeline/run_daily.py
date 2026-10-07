@@ -36,6 +36,7 @@ from src.process.freshness import filter_by_freshness
 from src.process.llm_classify import (
     ClassificationResult,
     LlmUsageGuard,
+    PipelineInternalError,
     chunk_entries,
     classify_entries_batch_with_fallback,
 )
@@ -287,6 +288,16 @@ def _row_to_normalized_entry(row: dict[str, Any]) -> NormalizedEntry:
     )
 
 
+def _failure_message(exc: BaseException) -> str:
+    """Run-level error text; local bugs are labelled so they are not read as outages."""
+    prefix = (
+        "Internal error (not a model outage)"
+        if isinstance(exc, PipelineInternalError)
+        else "Pipeline failed"
+    )
+    return f"{prefix}: {sanitize_error_text(str(exc), max_len=480)}"
+
+
 @dataclass
 class RescoreStats:
     attempted: int = 0
@@ -396,6 +407,10 @@ def rescore_fallback_items(
                     pass
             stats.errors.append(f"daily quota during rescore: {exc}")
             break
+        except PipelineInternalError:
+            # Our bug, not a model outage: fail the run. Rows left in status=scoring
+            # are returned to the queue by release_stale_scoring_claims on the next run.
+            raise
         except Exception as exc:  # noqa: BLE001
             stats.errors.append(f"rescore batch failed: {exc}")
             continue
@@ -581,6 +596,7 @@ def run_rescore_only(
         return PipelineResult(status="failed", run_id=None, message=str(exc))
 
     conn = _connect()
+    run_id: str | None = None
     try:
         repo = Repository(conn)
         run_id = repo.start_run(trigger)
@@ -634,6 +650,14 @@ def run_rescore_only(
             items_rescored_fallback=stats.still_fallback,
             message=msg,
         )
+    except PipelineInternalError as exc:
+        message = _failure_message(exc)
+        if run_id is not None:
+            try:
+                repo.finish_run(run_id, status="failed", error_message=message[:500])
+            except Exception:  # noqa: BLE001 - best effort, the CLI still exits 1
+                pass
+        return PipelineResult(status="failed", run_id=run_id, message=message)
     finally:
         try:
             conn.close()
@@ -820,6 +844,8 @@ def run_daily(
                                 f"{entry.url}: pending persist failed: {persist_exc}"
                             )
                     break
+                except PipelineInternalError:
+                    raise  # handled by the top-level guard → status=failed
                 except Exception as exc:  # noqa: BLE001
                     items_failed += len(batch)
                     classify_errors.append(f"classify batch failed: {exc}")
@@ -1011,7 +1037,7 @@ def run_daily(
             except Exception:
                 pass
     except Exception as exc:  # noqa: BLE001 - top-level guard for run table status
-        message = f"Pipeline failed: {sanitize_error_text(str(exc), max_len=480)}"
+        message = _failure_message(exc)
         if run_id is not None:
             try:
                 conn = _connect()
