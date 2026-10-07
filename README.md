@@ -275,6 +275,7 @@ One-line summaries - full rationale in [DECISIONS.md](DECISIONS.md):
 | Archive-size feeds | `snyk.io/blog/feed/` ~1670 historical items | Parse/normalize **only in-window** entries before selection |
 | Noisy community sources | `r/devops` was 25/25 filtered under strict gate | Disabled `reddit_devops`, keep HN keyword feeds with strict gate |
 | Fallback / unscored looking “green” | Mid-score placeholders could look like real scores | UI shows **Not scored** for `is_fallback` / null scores, hide unscored by default |
+| **Turso returns plain tuple rows**, tests used `sqlite3.Row` | A wrong column index raised `TypeError` before any Gemini call, every item became a fallback for two days, and graceful degradation hid it as a “model outage” | Fixed and covered by a tuple-row test, local programming errors now **fail the run** (`Internal error`, exit 1) instead of degrading |
 
 ---
 
