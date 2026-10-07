@@ -369,6 +369,9 @@ def _install_pipeline_fixtures(
     monkeypatch.setattr("src.ingest.rss_fetcher.datetime", _FrozenDateTime)
     monkeypatch.setattr("src.process.freshness.datetime", _FrozenDateTime)
     monkeypatch.setattr("src.pipeline.run_daily.datetime", _FrozenDateTime)
+    # Rescore selection has its own lookback cutoff; without this the test
+    # starts failing once NOW is more than rescore_fallback_days in the past.
+    monkeypatch.setattr("src.process.rescore.datetime", _FrozenDateTime)
 
     monkeypatch.setattr("src.ingest.rss_fetcher.time.sleep", lambda *_a, **_k: None)
     monkeypatch.setattr("src.process.llm_classify.time.sleep", lambda *_a, **_k: None)
