@@ -4,6 +4,92 @@ A running record of architectural decisions made during the project, newest firs
 
 ---
 
+## [2026-10-08] Temporary open review demo
+
+**Selected Option:** Deploy the dashboard as a public live demo on Streamlit
+Community Cloud (this repo, `main`, `src/ui/app.py`, Python 3.11) with **no
+authentication and full behavior** (feedback, weight saves, Ask, and two pipeline
+buttons), for the review only. Every account behind it is a temporary free tier
+(Streamlit Community Cloud, Turso, Gemini key, a fine-grained GitHub token) and is
+deleted after the review. A notice at the top of the page says so and warns that
+pages are slow because the app server and the free database are in different
+regions. Secrets come from environment variables first and `st.secrets` second
+(`src/app_secrets.py`) and are never logged or rendered. The two buttons, **Run
+daily ingest** and **Retry scoring**, only send a `workflow_dispatch` for
+`daily_ingest.yml` / `retry_pending.yml` on `main` with `GITHUB_DISPATCH_TOKEN`
+(this repository only, **Actions: Read and write**), lock for 3 minutes per
+session, and show the latest run status from the API.
+
+**Alternatives Considered:**
+- Screenshots plus "live demo on request" (rejected: the reviewer cannot try the
+  real system without setup or keys)
+- Password or Streamlit viewer allow-list (rejected for this review: adds a sharing
+  step, and the data and accounts are disposable)
+- Read-only demo without the buttons (rejected: the reviewer could not see a run
+  start, finish, and show up in Pipeline runs)
+- Running ingestion inside the Streamlit process (rejected, see
+  [Dashboard does not run ingestion](#2026-10-05-dashboard-does-not-run-ingestion))
+
+**Rationale:** Reviewability with bounded risk. Abuse is capped by design: the
+workflows share one concurrency group (at most one active and one queued run),
+the pipeline caps items per run, Gemini free-tier quotas cap spend, and the token
+can only start workflows in this one repository. The per-session cooldown is UX
+only, a new session bypasses it, and that is accepted for a disposable demo.
+
+**What would change in production:** SSO in front of the dashboard, least-privilege
+credentials per role (read-only database token for viewers, no write path for
+anonymous users), no public write access (feedback, weights, or workflow dispatch
+only for authenticated, authorized users), secrets in a managed vault with
+rotation, and a server-side rate limit instead of a per-session cooldown.
+
+**In short:**
+> "For the review the dashboard is public on purpose: no login, real data, and two
+> buttons that ask GitHub to run the existing workflows. It sits on throwaway
+> free-tier accounts, the concurrency group and model quotas bound the cost, and in
+> production I'd put SSO in front, split read and write credentials, and remove
+> every anonymous write path."
+
+**JFrog Product Connection (If applicable):**
+The fine-grained token and the open-demo trade-off are an access-control question.
+In an enterprise setup, JFrog Platform access tokens with scoped permissions and
+SSO would govern who can trigger pipelines or publish artifacts. No JFrog product
+is integrated here.
+
+---
+
+## [2026-10-08] Ordered fallback model chain
+
+**Selected Option:** Replace the single `fallback_model` with an ordered
+`fallback_models` list in `config/model.yaml` (`gemini-3.5-flash-lite`, then
+`gemini-2.5-flash-lite`). On a daily quota (hard PerDay or the soft budget) the
+daily ingest and the rescore move to the next model that is not hard-blocked in
+`llm_model_blocks`. Each model is used at most once per run, and the daily ingest
+shares that state with its end-of-run auto-rescore, so a run only walks forward.
+Each switch is appended to the run's `error_message`. `ask_model` is removed from
+the chain even if listed, so pipeline runs never spend the Ask quota.
+`--use-fallback-model` starts on the first entry and can still move to the next.
+
+**Alternatives Considered:**
+- Keep one fallback (rejected: one exhausted free-tier model was enough to stop a
+  run, and each Gemini model id has its own daily pool)
+- Retry the primary after the last fallback (rejected: loops on an exhausted model)
+- Use `ask_model` as a last resort (rejected: a cron run could leave Ask unusable
+  for the day)
+
+**Rationale:** Reliability / Cost - more scored items per day on free tiers, with
+a hard bound of one attempt sequence per model per run.
+
+**In short:**
+> "When a model hits its daily quota, the run moves down an ordered list of
+> fallbacks, skips any model already blocked, never tries a model twice, and
+> writes each switch into the run record. The Ask model is kept out so the
+> pipeline cannot eat its quota."
+
+**JFrog Product Connection (If applicable):**
+Not applicable.
+
+---
+
 ## [2026-10-05] Ask Digest: conversation-stable citations and one Sources list
 
 **Selected Option:** A news item gets its `[n]` the first time it is retrieved in a
@@ -78,6 +164,12 @@ pipeline history only. Collection runs exclusively via GitHub Actions
 `python -m src.pipeline.run_daily`. The historical run trigger label `ui` remains
 valid so old rows still render; nothing creates new `ui` runs.
 
+**Update 2026-10-08:** the dashboard's **Run daily ingest** and **Retry scoring**
+buttons only dispatch the GitHub workflows (`workflow_dispatch` on `main` via the
+REST API). Fetch and classify still never run inside the Streamlit process, the
+runs appear as `manual` in Pipeline runs. See
+[Temporary open review demo](#2026-10-08-temporary-open-review-demo).
+
 **Alternatives Considered:**
 - Keep a UI ingest button with a tighter `ui_run_now_limit` (rejected: UI clicks
   still burn shared Gemini quota and block the Streamlit process)
@@ -105,7 +197,8 @@ Not applicable.
 **Selected Option:** On a hard Gemini PerDay error, parse the retry hint
 (e.g. `18h55m33s`), store `blocked_until = now + hint + 120s` in
 `llm_model_blocks`, and skip API calls for that model until then. Pipeline
-marks items `pending_scoring` (or switches to `fallback_model` if unblocked);
+marks items `pending_scoring` (or switches to the next unblocked `fallback_models`
+entry, see [Ordered fallback model chain](#2026-10-08-ordered-fallback-model-chain));
 Ask shows a friendly message with UTC + Asia/Jerusalem reset times.
 
 **Alternatives Considered:**
@@ -683,7 +776,9 @@ Not applicable.
 
 **Selected Option:** Keep Gemini model **ids** only in `config/model.yaml`:
 `pipeline_model` / `model_id` (primary classifier, e.g. `gemini-3.8-flash`),
-`fallback_model` (quota / `--use-fallback-model`, e.g. `gemini-3.5-flash-lite`),
+`fallback_model` (quota / `--use-fallback-model`, e.g. `gemini-3.5-flash-lite`;
+now an ordered `fallback_models` list, see
+[Ordered fallback model chain](#2026-10-08-ordered-fallback-model-chain)),
 `ask_model` (Ask the Digest, e.g. `gemini-3.1-flash-lite`). Single
 `GEMINI_API_KEY`. `provider:` is informational - the SDK path is Gemini-specific
 (`google-generativeai`) today; multi-provider abstraction is Future Work.

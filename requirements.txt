@@ -1,5 +1,7 @@
 # Pinned for reproducible demos. Streamlit version is pinned because CSS targeting
 # of tabs/buttons is fragile across releases.
+# Target Python 3.11 (GitHub Actions and Streamlit Community Cloud): libsql 0.1.8
+# ships a cp311 manylinux x86_64 wheel, so nothing is compiled at deploy time.
 
 streamlit==1.39.0
 PyYAML==6.0.2
