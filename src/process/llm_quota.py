@@ -16,6 +16,7 @@ from __future__ import annotations
 import logging
 import math
 import re
+from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
 from typing import Any, Literal
 from zoneinfo import ZoneInfo
@@ -175,17 +176,58 @@ def quota_day_key(
     return now.astimezone(tz).date().isoformat()
 
 
-def resolve_pipeline_model(cfg: dict[str, Any], *, use_fallback: bool = False) -> str:
-    """Active pipeline model id (primary or fallback_model when requested)."""
-    primary = str(cfg.get("pipeline_model") or cfg.get("model_id") or "").strip()
-    fallback = str(cfg.get("fallback_model") or "").strip()
-    if use_fallback:
-        if not fallback:
-            raise ValueError(
-                "--use-fallback-model requires fallback_model to be set in config/model.yaml"
+def primary_pipeline_model(cfg: dict[str, Any]) -> str:
+    return str(cfg.get("pipeline_model") or cfg.get("model_id") or "").strip()
+
+
+def pipeline_fallback_chain(cfg: dict[str, Any]) -> list[str]:
+    """Ordered ``fallback_models`` ids, without duplicates, the primary, or ask_model.
+
+    ask_model is dropped so a pipeline run can never spend the Ask the Digest quota.
+    """
+    raw = cfg.get("fallback_models") or []
+    if isinstance(raw, str):
+        raw = [raw]
+    primary = primary_pipeline_model(cfg)
+    ask = str(cfg.get("ask_model") or "").strip()
+    chain: list[str] = []
+    for item in raw:
+        model_id = str(item or "").strip()
+        if not model_id or model_id == primary or model_id in chain:
+            continue
+        if model_id == ask:
+            logger.warning(
+                "Ignoring %s in fallback_models: it is ask_model (Ask quota is reserved)",
+                model_id,
             )
-        return fallback
-    return primary
+            continue
+        chain.append(model_id)
+    return chain
+
+
+def next_fallback_model(
+    chain: list[str],
+    tried: set[str],
+    is_blocked: Callable[[str], bool],
+) -> str | None:
+    """First model in ``chain`` not yet tried this run and not hard-blocked, else None."""
+    for model_id in chain:
+        if model_id in tried or is_blocked(model_id):
+            continue
+        return model_id
+    return None
+
+
+def resolve_pipeline_model(cfg: dict[str, Any], *, use_fallback: bool = False) -> str:
+    """Active pipeline model id (primary, or the first fallback_models entry)."""
+    if use_fallback:
+        chain = pipeline_fallback_chain(cfg)
+        if not chain:
+            raise ValueError(
+                "--use-fallback-model requires fallback_models to be set in config/model.yaml"
+            )
+        return chain[0]
+    return primary_pipeline_model(cfg)
 
 
 def resolve_ask_model(cfg: dict[str, Any]) -> str:

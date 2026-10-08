@@ -43,6 +43,8 @@ from src.process.llm_classify import (
 from src.process.llm_quota import (
     DailyQuotaError,
     model_min_interval_seconds,
+    next_fallback_model,
+    pipeline_fallback_chain,
     resolve_pipeline_model,
 )
 from src.process.llm_rate_limit import configure_llm_interval
@@ -311,8 +313,8 @@ class RescoreStats:
     retries_used: int = 0
     quota_stopped: bool = False
     errors: list[str] = field(default_factory=list)
-    # Set when this rescore switched primary → fallback_model after a hard PerDay.
-    model_switch_note: str | None = None
+    # Model switches made during this rescore (also recorded on the shared chain).
+    model_switch_notes: list[str] = field(default_factory=list)
 
 
 def _fallback_model_hard_blocked(repo: Repository, model_id: str) -> bool:
@@ -326,6 +328,46 @@ def _fallback_model_hard_blocked(repo: Repository, model_id: str) -> bool:
     return until > now
 
 
+@dataclass
+class ModelFallbackChain:
+    """Per-run fallback state shared by the daily ingest and its auto-rescore.
+
+    Each model is used at most once per run (``tried``), so a run can only walk
+    forward through ``fallback_models`` and never loops back to an exhausted model.
+    """
+
+    chain: list[str]
+    tried: set[str]
+    notes: list[str] = field(default_factory=list)
+
+    @classmethod
+    def starting_at(cls, model_cfg: dict[str, Any], model_id: str) -> ModelFallbackChain:
+        return cls(chain=pipeline_fallback_chain(model_cfg), tried={model_id})
+
+    def switch_after_quota(
+        self, repo: Repository, current_model: str, exc: DailyQuotaError
+    ) -> str | None:
+        """Next unblocked, untried model after a daily quota on ``current_model``."""
+        next_model = next_fallback_model(
+            self.chain,
+            self.tried,
+            lambda model_id: _fallback_model_hard_blocked(repo, model_id),
+        )
+        if next_model is None:
+            return None
+        reason = "soft daily budget" if exc.soft_budget else "PerDay"
+        logger.warning(
+            "Model %s hit daily quota (%s, hint=%s), switching to %s",
+            current_model,
+            reason,
+            exc.retry_hint or "none",
+            next_model,
+        )
+        self.tried.add(next_model)
+        self.notes.append(f"switched to {next_model} after {reason} on {current_model}")
+        return next_model
+
+
 def rescore_fallback_items(
     repo: Repository,
     *,
@@ -337,6 +379,7 @@ def rescore_fallback_items(
     model_id_override: str | None = None,
     usage_guard: LlmUsageGuard | None = None,
     use_fallback_model: bool = False,
+    model_chain: ModelFallbackChain | None = None,
 ) -> RescoreStats:
     """Re-classify stored is_fallback / pending_scoring rows (newest first, capped)."""
     days = int(
@@ -362,15 +405,11 @@ def rescore_fallback_items(
     if not candidates:
         return stats
 
-    primary_model = model_id_override or resolve_pipeline_model(
+    model_id = model_id_override or resolve_pipeline_model(
         model_cfg, use_fallback=use_fallback_model
     )
-    fallback_model = str(model_cfg.get("fallback_model") or "").strip()
-    model_id = primary_model
-    active_is_fallback = bool(
-        use_fallback_model
-        or (fallback_model and model_id == fallback_model)
-    )
+    chain = model_chain or ModelFallbackChain.starting_at(model_cfg, model_id)
+    chain.tried.add(model_id)
     configure_llm_interval(model_min_interval_seconds(model_cfg, model_id))
     guard = usage_guard or LlmUsageGuard(
         repo, model_cfg, purpose="rescore", model_id=model_id
@@ -416,26 +455,12 @@ def rescore_fallback_items(
                 model_id_override=model_id,
             )
         except DailyQuotaError as exc:
-            # Switch to fallback_model at most once (same rule as daily ingest).
-            if (
-                not active_is_fallback
-                and fallback_model
-                and model_id != fallback_model
-                and not _fallback_model_hard_blocked(repo, fallback_model)
-            ):
-                logger.warning(
-                    "Rescore primary %s hit daily quota (%s), switching to fallback_model=%s",
-                    model_id,
-                    exc.retry_hint or "no hint",
-                    fallback_model,
-                )
-                reason = "soft daily budget" if exc.soft_budget else "PerDay"
+            # Walk the fallback chain (same rule as daily ingest, each model once).
+            next_model = chain.switch_after_quota(repo, model_id, exc)
+            if next_model is not None:
                 # Kept out of stats.errors: that list feeds items_failed / status.
-                stats.model_switch_note = (
-                    f"switched to {fallback_model} after {reason} on {model_id}"
-                )
-                model_id = fallback_model
-                active_is_fallback = True
+                stats.model_switch_notes.append(chain.notes[-1])
+                model_id = next_model
                 configure_llm_interval(
                     model_min_interval_seconds(model_cfg, model_id)
                 )
@@ -693,8 +718,8 @@ def run_rescore_only(
                     "Model classify failures for run %s: %s", run_id, cause_summary
                 )
                 msg += f"; {cause_summary}"
-        if stats.model_switch_note:
-            msg += f" | {stats.model_switch_note}"
+        if stats.model_switch_notes:
+            msg += f" | {'; '.join(stats.model_switch_notes)}"
         if stats.quota_stopped:
             msg += " | daily quota - remaining items stay pending_scoring"
         repo.finish_run(
@@ -707,7 +732,7 @@ def run_rescore_only(
             items_fallback=stats.still_fallback,
             retries_used=stats.retries_used,
             error_message=(
-                msg if status != "success" or stats.model_switch_note else None
+                msg if status != "success" or stats.model_switch_notes else None
             ),
         )
         return PipelineResult(
@@ -753,7 +778,8 @@ def run_daily(
     limit: when set, raises/sets the selection cap for this run (not clamped down).
     After a live run, automatically rescores recent fallbacks (last N days) unless
     ``skip_auto_rescore`` is set.
-    use_fallback_model: run the whole job on config fallback_model (one-off backfill).
+    use_fallback_model: start the job on the first fallback_models entry (one-off
+    backfill), later entries are still used on a daily quota.
     """
     model_cfg = load_model_config()
     if window_hours is not None:
@@ -769,9 +795,6 @@ def run_daily(
             run_id=None,
             message=str(exc),
         )
-    # When --use-fallback-model, treat fallback as the only active model for this run.
-    active_is_fallback_flag = bool(use_fallback_model)
-    fallback_model = str(model_cfg.get("fallback_model") or "").strip()
     relevance_cfg = load_relevance_config()
     source_meta = _source_meta_by_id()
     use_turso = turso_configured() and db_path is None
@@ -850,6 +873,7 @@ def run_daily(
                 for sid, meta in source_meta.items()
             }
             active_model = model_id
+            model_chain = ModelFallbackChain.starting_at(model_cfg, active_model)
             configure_llm_interval(model_min_interval_seconds(model_cfg, active_model))
             usage_guard = LlmUsageGuard(
                 repo, model_cfg, purpose="pipeline", model_id=active_model
@@ -874,20 +898,10 @@ def run_daily(
                         model_id_override=active_model,
                     )
                 except DailyQuotaError as exc:
-                    # Prefer switching to fallback_model once if configured and not already on it.
-                    if (
-                        not active_is_fallback_flag
-                        and fallback_model
-                        and active_model != fallback_model
-                    ):
-                        logger.warning(
-                            "Primary model %s hit daily quota (%s), switching to fallback_model=%s",
-                            active_model,
-                            exc.retry_hint or "no hint",
-                            fallback_model,
-                        )
-                        active_model = fallback_model
-                        active_is_fallback_flag = True
+                    # Move to the next unblocked fallback model (each at most once per run).
+                    next_model = model_chain.switch_after_quota(repo, active_model, exc)
+                    if next_model is not None:
+                        active_model = next_model
                         configure_llm_interval(
                             model_min_interval_seconds(model_cfg, active_model)
                         )
@@ -1058,6 +1072,7 @@ def run_daily(
                     source_meta=source_meta,
                     model_id_override=active_model,
                     usage_guard=usage_guard,
+                    model_chain=model_chain,
                 )
                 rescored_ok = rescore_stats.ok
                 rescored_fallback = rescore_stats.still_fallback
@@ -1070,6 +1085,11 @@ def run_daily(
                     error_message = (error_message or "Pipeline completed.") + heal_note
             elif daily_quota_hit:
                 error_message = (error_message or "") + " Auto-rescore skipped (daily quota)."
+            if model_chain.notes:
+                error_message = (
+                    f"{error_message or 'Pipeline completed.'} | "
+                    f"{'; '.join(model_chain.notes)}"
+                )
 
             repo.finish_run(
                 run_id,
@@ -1315,7 +1335,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--use-fallback-model",
         action="store_true",
-        help="Run the whole job on config fallback_model (for backfill when primary quota is small).",
+        help=(
+            "Start on the first config fallback_models entry instead of the primary "
+            "(for backfill when primary quota is small)."
+        ),
     )
     return parser
 

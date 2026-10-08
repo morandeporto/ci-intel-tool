@@ -1,4 +1,4 @@
-"""Rescore switches to fallback_model once on a daily quota, like the daily ingest."""
+"""Rescore switches to the first fallback_models entry on a daily quota, like the daily ingest."""
 
 from __future__ import annotations
 
@@ -84,7 +84,7 @@ def test_rescore_switches_once_and_stores_fallback_model(
         monkeypatch,
         gemini=_gemini_by_model({PRIMARY}, calls, ok_primary_calls=1),
         batch_size=2,
-        fallback_model=FALLBACK,
+        fallback_models=[FALLBACK],
     )
 
     result = run_rescore_only(db_path=db_path, trigger="retry")
@@ -116,7 +116,7 @@ def test_rescore_switches_at_most_once_when_fallback_also_hits_quota(
         monkeypatch,
         gemini=_gemini_by_model({PRIMARY, FALLBACK}, calls),
         batch_size=2,
-        fallback_model=FALLBACK,
+        fallback_models=[FALLBACK],
     )
 
     result = run_rescore_only(db_path=db_path, trigger="retry")
@@ -148,7 +148,7 @@ def test_rescore_does_not_switch_when_fallback_is_already_blocked(
         monkeypatch,
         gemini=_gemini_by_model({PRIMARY}, calls),
         batch_size=2,
-        fallback_model=FALLBACK,
+        fallback_models=[FALLBACK],
     )
 
     result = run_rescore_only(db_path=db_path, trigger="retry")
@@ -174,7 +174,7 @@ def test_rescore_with_use_fallback_model_never_switches(
         monkeypatch,
         gemini=_gemini_by_model({FALLBACK}, calls),
         batch_size=2,
-        fallback_model=FALLBACK,
+        fallback_models=[FALLBACK],
     )
 
     result = run_rescore_only(db_path=db_path, use_fallback_model=True, trigger="retry")

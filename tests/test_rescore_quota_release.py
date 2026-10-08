@@ -69,7 +69,7 @@ def _install_rescore_mocks(
     *,
     gemini: Any,
     batch_size: int = 2,
-    fallback_model: str = "",
+    fallback_models: list[str] | None = None,
 ) -> dict[str, Any]:
     monkeypatch.setenv("GEMINI_API_KEY", "test-key-not-real")
     monkeypatch.delenv("TURSO_DATABASE_URL", raising=False)
@@ -93,7 +93,7 @@ def _install_rescore_mocks(
             "rescore_fallback_days": 3,
             "rescore_fallback_limit": 40,
             "scoring_claim_timeout_minutes": 30,
-            "fallback_model": fallback_model,
+            "fallback_models": list(fallback_models or []),
             "model_daily_limits": {
                 "gemini-3.8-flash": 1000,
                 "gemini-3.5-flash-lite": 1000,
@@ -161,7 +161,7 @@ def test_rescore_quota_releases_remaining_claims_immediately(
         )
 
     cfg = _install_rescore_mocks(
-        monkeypatch, gemini=gemini, batch_size=2, fallback_model=""
+        monkeypatch, gemini=gemini, batch_size=2, fallback_models=[]
     )
 
     result = run_rescore_only(db_path=db_path, trigger="retry")

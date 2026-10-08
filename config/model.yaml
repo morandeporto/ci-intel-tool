@@ -11,9 +11,14 @@ rubric_version: "2026-10-v2"
 # Primary pipeline classifier (also aliased as model_id for backward compatibility).
 pipeline_model: gemini-3.8-flash
 model_id: gemini-3.8-flash
-# Used when the primary hits its daily PerDay quota, or via --use-fallback-model.
-fallback_model: gemini-3.5-flash-lite
-# Ask the Digest model (same GEMINI_API_KEY).
+# Ordered fallback chain. On a daily quota (hard PerDay or soft budget below) a run
+# moves to the next model that is not hard-blocked, each model at most once per run.
+# --use-fallback-model starts on the first entry. ask_model is never used here.
+fallback_models:
+  - gemini-3.5-flash-lite
+  - gemini-2.5-flash-lite
+# Ask the Digest model (same GEMINI_API_KEY). Kept out of the pipeline chain so
+# ingest / rescore runs never spend the Ask quota.
 ask_model: gemini-3.1-flash-lite
 
 # Soft per-model daily call budgets (llm_usage). Hard stop still comes from API PerDay errors.
@@ -21,6 +26,7 @@ ask_model: gemini-3.1-flash-lite
 model_daily_limits:
   gemini-3.8-flash: 20
   gemini-3.5-flash-lite: 50
+  gemini-2.5-flash-lite: 20
   gemini-3.1-flash-lite: 50
 
 # Calendar day boundary for llm_usage counters.
@@ -31,6 +37,7 @@ quota_day_timezone: UTC
 model_min_interval_seconds:
   gemini-3.8-flash: 12.0
   gemini-3.5-flash-lite: 4.0
+  gemini-2.5-flash-lite: 4.0
   gemini-3.1-flash-lite: 4.0
 
 max_items_per_run: 20

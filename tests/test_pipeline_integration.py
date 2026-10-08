@@ -315,7 +315,7 @@ def _fast_model_cfg(**overrides: Any) -> dict[str, Any]:
             "max_per_source": 3,
             "max_items_per_run": 20,
             "window_hours": 48,
-            "fallback_model": "",
+            "fallback_models": [],
             "model_daily_limits": {
                 "gemini-3.8-flash": 1000,
                 "gemini-3.5-flash-lite": 1000,
@@ -568,7 +568,7 @@ def test_pipeline_daily_quota_leaves_pending_scoring(
         monkeypatch,
         sources=FIXTURE_SOURCES_HAPPY,
         feeds=_happy_feeds(),
-        model_overrides={"batch_size": 2, "fallback_model": ""},
+        model_overrides={"batch_size": 2, "fallback_models": []},
         gemini=gemini,
     )
 
@@ -642,7 +642,7 @@ def test_rescore_heals_pending_after_quota(
         monkeypatch,
         sources=FIXTURE_SOURCES_HAPPY,
         feeds=_happy_feeds(),
-        model_overrides={"batch_size": 2, "fallback_model": ""},
+        model_overrides={"batch_size": 2, "fallback_models": []},
         gemini=quota_then_ok,
     )
 
