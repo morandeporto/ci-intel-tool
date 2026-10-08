@@ -120,6 +120,18 @@ def load_comparison(config_dir: Path | None = None) -> dict[str, Any]:
     return _load_yaml(base / "comparison.yaml")
 
 
+def load_demo_config(config_dir: Path | None = None) -> dict[str, Any]:
+    """GitHub repo / workflow settings for the dashboard's pipeline buttons."""
+    base = config_dir or CONFIG_DIR
+    data = _load_yaml(base / "demo.yaml")
+    workflows = data.get("workflows")
+    if not isinstance(workflows, dict) or not workflows:
+        raise ConfigError("demo.yaml must contain a workflows mapping")
+    if not str(data.get("github_repo") or "").count("/") == 1:
+        raise ConfigError("demo.yaml github_repo must look like owner/name")
+    return data
+
+
 _VALID_KINDS = frozenset(
     {"official_competitor", "emerging", "industry", "community"}
 )

@@ -1,0 +1,19 @@
+# Dashboard pipeline buttons (temporary open review demo, see DECISIONS.md).
+# The dashboard never runs ingestion itself: each button only sends a
+# workflow_dispatch to GitHub Actions using the GITHUB_DISPATCH_TOKEN secret.
+
+github_repo: morandeporto/ci-intel-tool
+ref: main
+
+# Button key -> workflow file in .github/workflows (both share one concurrency group).
+workflows:
+  ingest: daily_ingest.yml
+  rescore: retry_pending.yml
+
+# Per-session lock on both buttons after a successful dispatch.
+cooldown_seconds: 180
+# GitHub REST call timeout.
+request_timeout_seconds: 10
+# After a dispatch, how many times to look for the new run (GitHub returns no run id).
+run_lookup_attempts: 3
+run_lookup_delay_seconds: 2.0
