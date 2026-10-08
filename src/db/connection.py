@@ -13,6 +13,7 @@ from typing import Any
 
 from dotenv import load_dotenv
 
+from src.app_secrets import get_secret
 from src.config_loader import DATA_DIR, DEFAULT_DB_PATH, PROJECT_ROOT
 
 load_dotenv(PROJECT_ROOT / ".env")
@@ -21,15 +22,11 @@ SCHEMA_PATH = PROJECT_ROOT / "data" / "schema.sql"
 
 
 def turso_configured() -> bool:
-    """True when shared Turso credentials are present in the environment."""
-    url = os.getenv("TURSO_DATABASE_URL", "").strip()
-    token = os.getenv("TURSO_AUTH_TOKEN", "").strip()
-    if not url or not token:
-        return False
-    # Ignore .env.example placeholders so local demos stay on SQLite.
-    if "your-" in url.lower() or "your-" in token.lower():
-        return False
-    return True
+    """True when shared Turso credentials are set (env vars or Streamlit secrets).
+
+    ``get_secret`` ignores .env.example placeholders so local demos stay on SQLite.
+    """
+    return bool(get_secret("TURSO_DATABASE_URL") and get_secret("TURSO_AUTH_TOKEN"))
 
 
 def is_connection_error(exc: BaseException) -> bool:
@@ -58,7 +55,7 @@ def ping_connection(conn: Any) -> None:
 def db_label(db_path: Path | str | None = None) -> str:
     """Human-readable DB description for the UI."""
     if turso_configured():
-        url = os.getenv("TURSO_DATABASE_URL", "").strip()
+        url = get_secret("TURSO_DATABASE_URL")
         # Show host only - never echo the auth token.
         host = url.split("@")[-1] if url else "turso"
         return f"Turso (shared): {host}"
@@ -102,8 +99,8 @@ def _turso_connection() -> Any:
             "Run: pip install -r requirements.txt"
         ) from exc
 
-    url = os.environ["TURSO_DATABASE_URL"].strip()
-    token = os.environ["TURSO_AUTH_TOKEN"].strip()
+    url = get_secret("TURSO_DATABASE_URL")
+    token = get_secret("TURSO_AUTH_TOKEN")
     conn = libsql.connect(database=url, auth_token=token)
     # Best-effort Row factory (sqlite3-compatible consumers).
     try:

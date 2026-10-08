@@ -8,7 +8,6 @@ embedded inside the block.
 from __future__ import annotations
 
 import json
-import os
 import re
 import time
 from datetime import datetime, timezone
@@ -17,6 +16,7 @@ from typing import Any, Literal
 from dotenv import load_dotenv
 from pydantic import BaseModel, ValidationError, field_validator
 
+from src.app_secrets import get_secret
 from src.config_loader import PROJECT_ROOT, load_model_config
 from src.db.models import DIMENSION_NAMES
 from src.ingest.normalize import NormalizedEntry
@@ -614,11 +614,11 @@ def parse_batch_classification_response(
 
 
 def _require_api_key() -> str:
-    key = os.getenv("GEMINI_API_KEY", "").strip()
-    if not key or key == "your-gemini-api-key-here":
+    key = get_secret("GEMINI_API_KEY")
+    if not key:
         raise ClassifyError(
             "GEMINI_API_KEY is missing or still a placeholder. "
-            "Set it in .env (never commit real keys)."
+            "Set it in .env or Streamlit secrets (never commit real keys)."
         )
     return key
 

@@ -13,7 +13,6 @@ New chat resets the news registry. Sources render once at the bottom, cited-only
 from __future__ import annotations
 
 import logging
-import os
 import re
 from dataclasses import dataclass, field
 from typing import Any
@@ -21,6 +20,7 @@ from urllib.parse import urlparse
 
 from dotenv import load_dotenv
 
+from src.app_secrets import get_secret
 from src.config_loader import PROJECT_ROOT, load_model_config
 from src.db.repository import Repository
 from src.process.llm_classify import (
@@ -632,10 +632,11 @@ def ask_digest(
     cfg = model_config if model_config is not None else load_model_config()
     model_id = resolve_ask_model(cfg)
     timeout_seconds = float(cfg.get("request_timeout_seconds", 60))
-    api_key = os.getenv("GEMINI_API_KEY", "").strip()
-    if not api_key or api_key == "your-gemini-api-key-here":
+    api_key = get_secret("GEMINI_API_KEY")
+    if not api_key:
         raise ClassifyError(
-            "GEMINI_API_KEY is missing. Set it in .env to use Ask the Digest."
+            "GEMINI_API_KEY is missing. Set it in .env or Streamlit secrets "
+            "to use Ask the Digest."
         )
 
     prompt = build_ask_prompt(
