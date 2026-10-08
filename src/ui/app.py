@@ -42,6 +42,7 @@ from src.ui.components import (
     render_run_history,
 )
 from src.ui.db_session import get_repository, mark_db_dirty
+from src.ui.demo_controls import render_demo_section
 from src.ui.host_chrome import boot_host_chrome
 from src.ui.pending_actions import (
     flash,
@@ -757,6 +758,7 @@ def main() -> None:
         ),
         unsafe_allow_html=True,
     )
+    render_demo_section()
 
     try:
         repo, _db_path = get_repository()

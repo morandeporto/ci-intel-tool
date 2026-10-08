@@ -333,6 +333,45 @@ div[data-testid="column"] div.stButton > button {
   line-height: 1.4;
 }
 
+.ci-demo-notice {
+  background: linear-gradient(145deg, var(--ci-glass-a), var(--ci-glass-b));
+  border: 1px solid var(--ci-border);
+  border-left: 3px solid var(--ci-brand);
+  border-radius: 16px;
+  padding: 0.7rem 1.1rem;
+  margin: 0 0 0.9rem;
+  font-size: var(--ci-fs-small);
+  line-height: 1.45;
+}
+.ci-demo-notice p {
+  margin: 0 0 0.2rem;
+  color: var(--ci-text);
+}
+.ci-demo-notice p + p {
+  color: var(--ci-text-secondary);
+}
+.ci-demo-notice a,
+.ci-demo-status a {
+  color: var(--ci-brand) !important;
+  text-decoration: none;
+  font-weight: 600;
+}
+.ci-demo-notice a:hover,
+.ci-demo-status a:hover {
+  text-decoration: underline;
+}
+.ci-demo-hint {
+  color: var(--ci-text-secondary);
+  font-size: var(--ci-fs-small);
+  line-height: 1.4;
+  padding-top: 0.45rem;
+}
+.ci-demo-status {
+  color: var(--ci-text-secondary);
+  font-size: 0.9rem;
+  margin: 0.2rem 0 0.8rem;
+}
+
 .ci-model-tag {
   color: var(--ci-text-secondary, #8C9FA4);
   font-size: 0.8rem;
