@@ -6,7 +6,7 @@ Config-driven, cost-aware, and demoable with local SQLite or an optional shared 
 
 Developed with AI-assisted tooling (Cursor), design decisions are documented in [DECISIONS.md](DECISIONS.md).
 
-**Live demo (no setup needed): LIVE_DEMO_URL**
+**Live demo (no setup needed):** [https://ci-intel-tool.streamlit.app/](https://ci-intel-tool.streamlit.app/)
 
 ## Live review demo
 
